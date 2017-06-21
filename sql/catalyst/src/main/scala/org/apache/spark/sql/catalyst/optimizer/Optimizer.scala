@@ -113,6 +113,7 @@ abstract class Optimizer(sessionCatalog: SessionCatalog, conf: SQLConf)
       SimplifyCreateStructOps,
       SimplifyCreateArrayOps,
       SimplifyCreateMapOps,
+      EliminateSamples,
       CombineConcats) ++
       extendedOperatorOptimizationRules: _*) ::
     Batch("Check Cartesian Products", Once,
@@ -682,6 +683,23 @@ object CombineUnions extends Rule[LogicalPlan] {
     }
     Union(flattened)
   }
+}
+
+/**
+ * Removes [[Sample]] operators from the plan if ratio is 0 or 1.
+ */
+object EliminateSamples extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = plan transform  {
+    case s @ Sample(lowerBound, upperBound, withReplacement, _, child) =>
+      val ratio = upperBound - lowerBound
+      if (ratio == 0 ) {
+        LocalRelation(child.output, data = Seq.empty)
+      } else if (!withReplacement && ratio == 1) {
+        child
+      } else {
+        s
+      }
+   }
 }
 
 /**
