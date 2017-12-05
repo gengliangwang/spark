@@ -163,4 +163,15 @@ class ConstantPropagationSuite extends PlanTest {
 
     comparePlans(Optimize.execute(query.analyze), correctAnswer)
   }
+
+  test("long condition") {
+    val condition = (1 to 800).map{x => columnA === Literal(x)}.reduce(And)
+    val query = testRelation
+      .select(columnA)
+      .where(condition)
+    val start = System.currentTimeMillis()
+    Optimize.execute(query.analyze)
+    val end = System.currentTimeMillis()
+    println(end - start)
+  }
 }
