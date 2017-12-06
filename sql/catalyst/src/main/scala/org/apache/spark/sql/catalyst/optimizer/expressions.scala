@@ -64,66 +64,23 @@ object ConstantFolding extends Rule[LogicalPlan] {
  * }}}
  *
  * Approach used:
- * - Start from AND operator as the root
- * - Get all the children conjunctive predicates which are EqualTo / EqualNullSafe such that they
- *   don't have a `NOT` or `OR` operator in them
  * - Populate a mapping of attribute => constant value by looking at all the equals predicates
  * - Using this mapping, replace occurrence of the attributes with the corresponding constant values
  *   in the AND node.
  */
 object ConstantPropagation extends Rule[LogicalPlan] with PredicateHelper {
-  private def containsNonConjunctionPredicates(expression: Expression): Boolean = expression.find {
-    case _: Not | _: Or => true
-    case _ => false
-  }.isDefined
-
-  def apply2(plan: LogicalPlan): LogicalPlan = plan transform {
-    case f: Filter =>
-      val condition = f.condition transformUp {
-      case and: And =>
-        val conjunctivePredicates =
-          splitConjunctivePredicates(and)
-            .filter(expr => expr.isInstanceOf[EqualTo] || expr.isInstanceOf[EqualNullSafe])
-            .filterNot(expr => containsNonConjunctionPredicates(expr))
-
-        val equalityPredicates = conjunctivePredicates.collect {
-          case e @ EqualTo(left: AttributeReference, right: Literal) => ((left, right), e)
-          case e @ EqualTo(left: Literal, right: AttributeReference) => ((right, left), e)
-          case e @ EqualNullSafe(left: AttributeReference, right: Literal) => ((left, right), e)
-          case e @ EqualNullSafe(left: Literal, right: AttributeReference) => ((right, left), e)
-        }
-
-        val constantsMap = AttributeMap(equalityPredicates.map(_._1))
-        val predicates = equalityPredicates.map(_._2).toSet
-
-        def replaceConstants(expression: Expression) = expression transform {
-          case a: AttributeReference =>
-            constantsMap.get(a) match {
-              case Some(literal) => literal
-              case None => a
-            }
-        }
-
-        and transform {
-          case e @ EqualTo(_, _) if !predicates.contains(e) => replaceConstants(e)
-          case e @ EqualNullSafe(_, _) if !predicates.contains(e) => replaceConstants(e)
-        }
-      }
-      f.copy(condition = condition)
-  }
-
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
     case f: Filter =>
-      val transformed = bar(f.condition)
-      if (transformed.isDefined) {
-        f.copy(condition = transformed.get)
+      val (newCondition, _) = traversal(f.condition, replaceChildren = true)
+      if (newCondition.isDefined) {
+        f.copy(condition = newCondition.get)
       } else {
         f
       }
   }
 
-  private def foo(e: Expression):
-    (Option[Expression], Seq[((AttributeReference, Literal), BinaryComparison)]) = e match {
+  private def traversal(e: Expression, replaceChildren: Boolean)
+    : (Option[Expression], Seq[((AttributeReference, Literal), BinaryComparison)]) = e match {
     case e @ EqualTo(left: AttributeReference, right: Literal) => (None, Seq(((left, right), e)))
     case e @ EqualTo(left: Literal, right: AttributeReference) => (None, Seq(((right, left), e)))
     case e @ EqualNullSafe(left: AttributeReference, right: Literal) =>
@@ -131,91 +88,58 @@ object ConstantPropagation extends Rule[LogicalPlan] with PredicateHelper {
     case e @ EqualNullSafe(left: Literal, right: AttributeReference) =>
       (None, Seq(((right, left), e)))
     case a: And =>
-      val (newLeft, equalityPredicatesLeft) = foo(a.left)
-      val (newRight, equalityPredicatesRight) = foo(a.right)
+      val (newLeft, equalityPredicatesLeft) = traversal(a.left, false)
+      val (newRight, equalityPredicatesRight) = traversal(a.right, false)
       val equalityPredicates = equalityPredicatesLeft ++ equalityPredicatesRight
-      if (newLeft.isDefined || newRight.isDefined) {
-        (Some(a.copy(left = newLeft.getOrElse(a.left), right = newRight.getOrElse((a.right)))),
-          equalityPredicates)
+
+      val newSelf = if (equalityPredicates.nonEmpty && replaceChildren) {
+        Some(And(left = replaceConstants(newLeft.getOrElse(a.left), equalityPredicates),
+          right = replaceConstants(newRight.getOrElse(a.right), equalityPredicates)))
       } else {
-        (None, equalityPredicates)
+        if (newLeft.isDefined || newRight.isDefined) {
+          Some(And(newLeft.getOrElse(a.left), newRight.getOrElse(a.right)))
+        } else {
+          None
+        }
       }
+      (newSelf, equalityPredicates)
     case o: Or =>
-      val newLeft = bar(o.left)
-      val newRight = bar(o.right)
-      if (newLeft.isDefined || newRight.isDefined) {
-        (Some(o.copy(left = newLeft.getOrElse(o.left), right = newRight.getOrElse((o.right)))),
-          Seq.empty)
+      val (newLeft, _) = traversal(o.left, true)
+      val (newRight, _) = traversal(o.right, true)
+      val newSelf = if (newLeft.isDefined || newRight.isDefined) {
+        Some(Or(left = newLeft.getOrElse(o.left), right = newRight.getOrElse((o.right))))
       } else {
-        (None, Seq.empty)
+        None
       }
+      (newSelf, Seq.empty)
     case n: Not =>
-      val newChild = bar(n.child)
-      if (newChild.isDefined) {
-        (Some(Not(newChild.get)), Seq.empty)
+      val (newChild, _) = traversal(n.child, true)
+      val newSelf = if (newChild.isDefined) {
+        Some(Not(newChild.get))
       } else {
-        (None, Seq.empty)
+        None
       }
+      (newSelf, Seq.empty)
     case _ => (None, Seq.empty)
   }
 
-  private def bar(input: Expression): Option[Expression] = {
-    val (newSelf, equalityPredicates) = foo(input)
-    if (equalityPredicates.isEmpty) {
-      None
-    } else {
-      val constantsMap = AttributeMap(equalityPredicates.map(_._1))
-      val predicates = equalityPredicates.map(_._2).toSet
-      def replaceConstants(expression: Expression) = expression transform {
-        case a: AttributeReference =>
-          constantsMap.get(a) match {
-            case Some(literal) => literal
-            case None => a
-          }
-      }
-      Some(newSelf.getOrElse(input) transform {
-        case e @ EqualTo(_, _) if !predicates.contains(e) => replaceConstants(e)
-        case e @ EqualNullSafe(_, _) if !predicates.contains(e) => replaceConstants(e)
-      })
-    }
-  }
-
-  private def foo2(e: Expression):
-   Seq[((AttributeReference, Literal), BinaryComparison)] = e match {
-    case e @ EqualTo(left: AttributeReference, right: Literal) => Seq(((left, right), e))
-    case e @ EqualTo(left: Literal, right: AttributeReference) => Seq(((right, left), e))
-    case e @ EqualNullSafe(left: AttributeReference, right: Literal) =>
-      Seq(((left, right), e))
-    case e @ EqualNullSafe(left: Literal, right: AttributeReference) =>
-      Seq(((right, left), e))
-    case a: And =>
-      val equalityPredicatesLeft = foo2(a.left)
-      val equalityPredicatesRight = foo2(a.right)
-      equalityPredicatesLeft ++ equalityPredicatesRight
-    case _ => Seq.empty
-  }
-
-  private def bar2(input: Expression): Expression = input match {
-    case _: And => orz(input, foo2(input))
-  }
-
-  private def orz(input: Expression,
+  private def replaceConstants(
+      input: Expression,
       equalityPredicates: Seq[((AttributeReference, Literal), BinaryComparison)])
     : Expression = {
-
-      val constantsMap = AttributeMap(equalityPredicates.map(_._1))
-      val predicates = equalityPredicates.map(_._2).toSet
-      def replaceConstants(expression: Expression) = expression transform {
-        case a: AttributeReference =>
-          constantsMap.get(a) match {
-            case Some(literal) => literal
-            case None => a
-          }
-      }
-      input transform {
-        case e @ EqualTo(_, _) if !predicates.contains(e) => replaceConstants(e)
-        case e @ EqualNullSafe(_, _) if !predicates.contains(e) => replaceConstants(e)
-      }
+    val constantsMap = AttributeMap(equalityPredicates.map(_._1))
+    val predicates = equalityPredicates.map(_._2).toSet
+    def _replaceConstants(expression: Expression) = expression transform {
+      case a: AttributeReference =>
+        constantsMap.get(a) match {
+          case Some(literal) => literal
+          case None => a
+        }
+    }
+    input transform {
+      case e @ EqualTo(_, _) if !predicates.contains(e) => _replaceConstants(e)
+      case e @ EqualNullSafe(_, _) if !predicates.contains(e) => _replaceConstants(e)
+    }
   }
 }
 
