@@ -139,7 +139,7 @@ case class CreateDataSourceTableAsSelectCommand(
     query: LogicalPlan)
   extends RunnableCommand {
 
-  override protected def innerChildren: Seq[LogicalPlan] = Seq(query)
+  override def children: Seq[LogicalPlan] = Seq(query)
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
     assert(table.tableType != CatalogTableType.VIEW)
@@ -165,7 +165,7 @@ case class CreateDataSourceTableAsSelectCommand(
       saveDataIntoTable(
         sparkSession, table, table.storage.locationUri, query, SaveMode.Append, tableExists = true)
     } else {
-      assert(table.schema.isEmpty)
+      // assert(table.schema.isEmpty)
 
       val tableLocation = if (table.tableType == CatalogTableType.MANAGED) {
         Some(sessionState.catalog.defaultTablePath(table.identifier))
@@ -179,7 +179,7 @@ case class CreateDataSourceTableAsSelectCommand(
         // We will use the schema of resolved.relation as the schema of the table (instead of
         // the schema of df). It is important since the nullability may be changed by the relation
         // provider (for example, see org.apache.spark.sql.parquet.DefaultSource).
-        schema = result.schema)
+        schema = mergeSchema(result.schema, table.schema))
       sessionState.catalog.createTable(newTable, ignoreIfExists = false)
 
       result match {
@@ -192,6 +192,16 @@ case class CreateDataSourceTableAsSelectCommand(
     }
 
     Seq.empty[Row]
+  }
+
+  private def mergeSchema(resultSchema: StructType, originalSchema: StructType): StructType = {
+    logError(resultSchema.toString())
+    logError(originalSchema.toString())
+    assert(resultSchema.length == originalSchema.length)
+    val result = resultSchema.zipWithIndex.map {
+      case (x, i) => x.copy(name = originalSchema(i).name)
+    }.toArray
+    StructType(result)
   }
 
   private def saveDataIntoTable(
