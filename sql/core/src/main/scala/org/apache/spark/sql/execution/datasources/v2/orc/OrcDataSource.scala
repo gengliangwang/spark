@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.execution.datasources.v2.orc
 
+import java.io.File
 import java.net.URI
 import java.util.{ArrayList, List => JList}
 
@@ -36,16 +37,13 @@ import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.execution.datasources.{InMemoryFileIndex, PartitionDirectory, PartitionedFile, RecordReaderIterator}
 import org.apache.spark.sql.execution.datasources.orc.{OrcDeserializer, OrcUtils}
-import org.apache.spark.sql.execution.streaming.sources.RateStreamSourceV2
 import org.apache.spark.sql.sources.DataSourceRegister
 import org.apache.spark.sql.sources.v2.{DataSourceOptions, DataSourceV2, ReadSupport}
 import org.apache.spark.sql.sources.v2.reader._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
-class OrcDataSource(
-    sparkSession: SparkSession,
-    files: Seq[FileStatus])
+class OrcDataSource
   extends DataSourceV2
   with ReadSupport
   with DataSourceRegister {
@@ -59,7 +57,7 @@ class OrcDataSource(
    *                case-insensitive string-to-string map.
    */
   override def createReader(options: DataSourceOptions): DataSourceReader = {
-    new OrcDataSourceReader(sparkSession, files, options)
+    new OrcDataSourceReader(options)
   }
 
   /**
@@ -75,18 +73,17 @@ class OrcDataSource(
   override def shortName(): String = "orc"
 }
 
-class OrcDataSourceReader(
-    sparkSession: SparkSession,
-    files: Seq[FileStatus],
-    options: DataSourceOptions)
+class OrcDataSourceReader(options: DataSourceOptions)
   extends DataSourceReader
   with SupportsScanColumnarBatch
   with SupportsScanUnsafeRow {
-
+  private val sparkSession = SparkSession.getActiveSession.get
   private val conf = sparkSession.sessionState.newHadoopConfWithOptions(Map.empty)
-  private val numPartitions = options.get(RateStreamSourceV2.NUM_PARTITIONS).orElse("5").toInt
+  private val numPartitions = options.get(OrcDataSource.NUM_PARTITIONS).orElse("5").toInt
+  private val filePath = new Path(options.get(OrcDataSource.PATH).orElse("."))
   private val fileIndex =
-    new InMemoryFileIndex(sparkSession, files.map(_.getPath), Map.empty, None)
+    new InMemoryFileIndex(sparkSession, Seq(filePath), Map.empty, None)
+  private val files = fileIndex.allFiles()
   /**
    * Returns the actual schema of this data source reader, which may be different from the physical
    * schema of the underlying storage, as column pruning or other optimizations may happen.
@@ -255,4 +252,5 @@ case class OrcUnsafeRowReaderFactory(
 
 object OrcDataSource {
   val NUM_PARTITIONS = "numPartitions"
+  val PATH = "path"
 }
