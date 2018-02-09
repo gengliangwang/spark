@@ -161,6 +161,7 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
    * @since 1.4.0
    */
   def load(): DataFrame = {
+    SparkSession.setActiveSession(session = sparkSession)
     load(Seq.empty: _*) // force invocation of `load(...varargs...)`
   }
 
@@ -171,6 +172,7 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
    * @since 1.4.0
    */
   def load(path: String): DataFrame = {
+    SparkSession.setActiveSession(session = sparkSession)
     option("path", path).load(Seq.empty: _*) // force invocation of `load(...varargs...)`
   }
 
@@ -182,6 +184,9 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
    */
   @scala.annotation.varargs
   def load(paths: String*): DataFrame = {
+    SparkSession.setActiveSession(session = sparkSession)
+    SparkSession.getActiveSession.get.sessionState
+      .newHadoopConfWithOptions(Map.empty)
     if (source.toLowerCase(Locale.ROOT) == DDLUtils.HIVE_PROVIDER) {
       throw new AnalysisException("Hive data source can only be used with tables, you can not " +
         "read files of Hive data source directly.")

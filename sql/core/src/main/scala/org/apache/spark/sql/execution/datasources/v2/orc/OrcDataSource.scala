@@ -65,7 +65,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
   extends DataSourceReader
   with SupportsScanColumnarBatch
   with SupportsScanUnsafeRow {
-  private lazy val sparkSession = SparkSession.getActiveSession
+  private def sparkSession = SparkSession.getActiveSession
     .getOrElse(SparkSession.getDefaultSession.get)
 
   private def numPartitions = options.get(OrcDataSource.NUM_PARTITIONS).orElse("5").toInt
@@ -102,17 +102,16 @@ class OrcDataSourceReader(options: DataSourceOptions)
   override def createUnsafeRowReaderFactories: JList[DataReaderFactory[UnsafeRow]] = {
     val selectedPartitions =
       PartitionDirectory(InternalRow.empty, files.filter(f => isDataPath(f.getPath))) :: Nil
-    val defaultMaxSplitBytes =
-      sparkSession.sessionState.conf.filesMaxPartitionBytes
-    val openCostInBytes = sparkSession.sessionState.conf.filesOpenCostInBytes
-    val defaultParallelism = sparkSession.sparkContext.defaultParallelism
-    val totalBytes = selectedPartitions.flatMap(_.files.map(_.getLen + openCostInBytes)).sum
-    val bytesPerCore = totalBytes / defaultParallelism
-
-    val maxSplitBytes = Math.min(defaultMaxSplitBytes, Math.max(openCostInBytes, bytesPerCore))
-
     val splitFiles = selectedPartitions.flatMap { partition =>
       partition.files.flatMap { file =>
+        val defaultMaxSplitBytes =
+          sparkSession.sessionState.conf.filesMaxPartitionBytes
+        val openCostInBytes = sparkSession.sessionState.conf.filesOpenCostInBytes
+        val defaultParallelism = sparkSession.sparkContext.defaultParallelism
+        val totalBytes = selectedPartitions.flatMap(_.files.map(_.getLen + openCostInBytes)).sum
+        val bytesPerCore = totalBytes / defaultParallelism
+
+        val maxSplitBytes = Math.min(defaultMaxSplitBytes, Math.max(openCostInBytes, bytesPerCore))
         val blockLocations = getBlockLocations(file)
         (0L until file.getLen by maxSplitBytes).map { offset =>
           val remaining = file.getLen - offset
