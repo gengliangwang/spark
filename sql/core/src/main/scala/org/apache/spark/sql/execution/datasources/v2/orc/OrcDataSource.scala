@@ -33,7 +33,7 @@ import org.apache.orc.mapreduce.OrcInputFormat
 
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.execution.datasources.{InMemoryFileIndex, PartitionDirectory, PartitionedFile, RecordReaderIterator}
 import org.apache.spark.sql.execution.datasources.orc.{OrcDeserializer, OrcUtils}
@@ -46,8 +46,7 @@ import org.apache.spark.util.SerializableConfiguration
 
 class OrcDataSource
   extends DataSourceV2
-  with ReadSupport
-  with DataSourceRegister {
+  with ReadSupport {
   /**
    * Creates a {@link DataSourceReader} to scan the data from this data source.
    *
@@ -60,36 +59,20 @@ class OrcDataSource
   override def createReader(options: DataSourceOptions): DataSourceReader = {
     new OrcDataSourceReader(options)
   }
-
-  /**
-   * The string that represents the format that this data source provider uses. This is
-   * overridden by children to provide a nice alias for the data source. For example:
-   *
-   * {{{
-   *   override def shortName(): String = "parquet"
-   * }}}
-   *
-   * @since 1.5.0
-   */
-  override def shortName(): String = "orc"
 }
 
 class OrcDataSourceReader(options: DataSourceOptions)
   extends DataSourceReader
   with SupportsScanColumnarBatch
   with SupportsScanUnsafeRow {
-  private val sparkSession = SparkSession.getActiveSession
+  private lazy val sparkSession = SparkSession.getActiveSession
     .getOrElse(SparkSession.getDefaultSession.get)
-  private val hadoopConf = sparkSession.sessionState
-    .newHadoopConfWithOptions(options.asMap().asScala.toMap)
-  val broadcastedConf =
-    sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
-  val conf = broadcastedConf.value.value
-  private val numPartitions = options.get(OrcDataSource.NUM_PARTITIONS).orElse("5").toInt
-  private val filePath = new Path(options.get(OrcDataSource.PATH).orElse("."))
-  private val fileIndex =
+
+  private def numPartitions = options.get(OrcDataSource.NUM_PARTITIONS).orElse("5").toInt
+  private def filePath = new Path(options.get(OrcDataSource.PATH).orElse("."))
+  private def fileIndex =
     new InMemoryFileIndex(sparkSession, Seq(filePath), Map.empty, None)
-  private val files = fileIndex.allFiles()
+  private def files = fileIndex.allFiles()
   /**
    * Returns the actual schema of this data source reader, which may be different from the physical
    * schema of the underlying storage, as column pruning or other optimizations may happen.
@@ -142,7 +125,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
     }
     splitFiles.map { partitionedFile =>
       new OrcUnsafeRowReaderFactory(
-        sparkSession, partitionedFile, readSchema(), readSchema(), conf)
+        sparkSession, partitionedFile, readSchema(), readSchema(), options.asMap().asScala.toMap)
         .asInstanceOf[DataReaderFactory[UnsafeRow]]
     }.asJava
   }
@@ -193,45 +176,12 @@ class OrcDataSourceReader(options: DataSourceOptions)
   }
 }
 
-case class OrcUnsafeRowReaderFactory(
-    sparkSession: SparkSession,
-    file: PartitionedFile,
-    dataSchema: StructType,
-    requiredSchema: StructType,
-    conf: Configuration)
-  extends DataReaderFactory[UnsafeRow] with DataReader[UnsafeRow] {
-  val filePath = new Path(new URI(file.filePath))
-  val fileSplit = new FileSplit(filePath, file.start, file.length, Array.empty)
-  val attemptId = new TaskAttemptID(new TaskID(new JobID(), TaskType.MAP, 0), 0)
-  val fs = filePath.getFileSystem(conf)
-  val readerOptions = OrcFile.readerOptions(conf).filesystem(fs)
-  val reader = OrcFile.createReader(filePath, readerOptions)
-  val isCaseSensitive = sparkSession.sessionState.conf.caseSensitiveAnalysis
-  val requestedColIdsOrEmptyFile = OrcUtils.requestedColumnIds(
-    isCaseSensitive, dataSchema, requiredSchema, reader, conf)
-  val requestedColIds = requestedColIdsOrEmptyFile.get
-  assert(requestedColIds.length == requiredSchema.length,
-    "[BUG] requested column IDs do not match required schema")
-  val taskConf = new Configuration(conf)
-  taskConf.set(OrcConf.INCLUDE_COLUMNS.getAttribute,
-    requestedColIds.filter(_ != -1).sorted.mkString(","))
-  val taskAttemptContext = new TaskAttemptContextImpl(taskConf, attemptId)
-  val orcRecordReader = new OrcInputFormat[OrcStruct]
-    .createRecordReader(fileSplit, taskAttemptContext)
-  val iter = new RecordReaderIterator[OrcStruct](orcRecordReader)
-  val fullSchema = requiredSchema.toAttributes
-  val unsafeProjection = GenerateUnsafeProjection.generate(fullSchema, fullSchema)
-
-  val deserializer = new OrcDeserializer(dataSchema, requiredSchema, requestedColIds)
-
-  /**
-   * Returns a data reader to do the actual reading work.
-   *
-   * If this method fails (by throwing an exception), the corresponding Spark task would fail and
-   * get retried until hitting the maximum retry times.
-   */
-  override def createDataReader(): DataReader[UnsafeRow] = this
-
+case class OrcUnsafeRowDataReader(
+    iter: RecordReaderIterator[OrcStruct],
+    fullSchema: Seq[Attribute],
+    deserializer: OrcDeserializer)
+  extends DataReader[UnsafeRow] {
+  private lazy val unsafeProjection = GenerateUnsafeProjection.generate(fullSchema, fullSchema)
   /**
    * Proceed to next record, returns false if there is no more records.
    *
@@ -255,6 +205,51 @@ case class OrcUnsafeRowReaderFactory(
   override def close(): Unit = {
     iter.close()
   }
+}
+
+case class OrcUnsafeRowReaderFactory(
+    sparkSession: SparkSession,
+    file: PartitionedFile,
+    dataSchema: StructType,
+    requiredSchema: StructType,
+    options: Map[String, String])
+  extends DataReaderFactory[UnsafeRow] {
+  private def hadoopConf = sparkSession.sessionState
+    .newHadoopConfWithOptions(options)
+  private def broadcastedConf =
+    sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
+  private def conf = broadcastedConf.value.value
+  private def filePath = new Path(new URI(file.filePath))
+  private def fileSplit = new FileSplit(filePath, file.start, file.length, Array.empty)
+  private def attemptId = new TaskAttemptID(new TaskID(new JobID(), TaskType.MAP, 0), 0)
+  private def fs = filePath.getFileSystem(conf)
+  private def readerOptions = OrcFile.readerOptions(conf).filesystem(fs)
+  private def reader = OrcFile.createReader(filePath, readerOptions)
+  private def isCaseSensitive = true
+  private def requestedColIdsOrEmptyFile = OrcUtils.requestedColumnIds(
+    isCaseSensitive, dataSchema, requiredSchema, reader, conf)
+  private def requestedColIds = requestedColIdsOrEmptyFile.get
+  assert(requestedColIds.length == requiredSchema.length,
+    "[BUG] requested column IDs do not match required schema")
+  private def taskConf = new Configuration(conf)
+  taskConf.set(OrcConf.INCLUDE_COLUMNS.getAttribute,
+    requestedColIds.filter(_ != -1).sorted.mkString(","))
+  private def taskAttemptContext = new TaskAttemptContextImpl(taskConf, attemptId)
+  private def orcRecordReader = new OrcInputFormat[OrcStruct]
+    .createRecordReader(fileSplit, taskAttemptContext)
+  private def iter = new RecordReaderIterator[OrcStruct](orcRecordReader)
+  private def fullSchema = requiredSchema.toAttributes
+
+  private def deserializer = new OrcDeserializer(dataSchema, requiredSchema, requestedColIds)
+
+  /**
+   * Returns a data reader to do the actual reading work.
+   *
+   * If this method fails (by throwing an exception), the corresponding Spark task would fail and
+   * get retried until hitting the maximum retry times.
+   */
+  override def createDataReader(): DataReader[UnsafeRow] =
+    OrcUnsafeRowDataReader(iter, fullSchema, deserializer)
 }
 
 object OrcDataSource {
