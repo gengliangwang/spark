@@ -31,22 +31,20 @@ import org.apache.orc.{OrcConf, OrcFile}
 import org.apache.orc.mapred.OrcStruct
 import org.apache.orc.mapreduce.OrcInputFormat
 
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.execution.datasources.{InMemoryFileIndex, PartitionDirectory, PartitionedFile, RecordReaderIterator}
 import org.apache.spark.sql.execution.datasources.orc.{OrcDeserializer, OrcUtils}
-import org.apache.spark.sql.sources.DataSourceRegister
 import org.apache.spark.sql.sources.v2.{DataSourceOptions, DataSourceV2, ReadSupport}
 import org.apache.spark.sql.sources.v2.reader._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SerializableConfiguration
 
-class OrcDataSource
-  extends DataSourceV2
-  with ReadSupport {
+class OrcDataSource extends DataSourceV2 with ReadSupport {
   /**
    * Creates a {@link DataSourceReader} to scan the data from this data source.
    *
@@ -64,15 +62,24 @@ class OrcDataSource
 class OrcDataSourceReader(options: DataSourceOptions)
   extends DataSourceReader
   with SupportsScanColumnarBatch
-  with SupportsScanUnsafeRow {
+  with SupportsScanUnsafeRow
+  with SupportsPushDownRequiredColumns {
+
   private def sparkSession = SparkSession.getActiveSession
     .getOrElse(SparkSession.getDefaultSession.get)
 
-  private def numPartitions = options.get(OrcDataSource.NUM_PARTITIONS).orElse("5").toInt
   private def filePath = new Path(options.get(OrcDataSource.PATH).orElse("."))
   private def fileIndex =
     new InMemoryFileIndex(sparkSession, Seq(filePath), Map.empty, None)
   private def files = fileIndex.allFiles()
+  var requiredSchema = dataSchema()
+
+  private def dataSchema(): StructType = {
+    OrcUtils.readSchema(sparkSession, files).getOrElse {
+      throw new AnalysisException(
+        s"Unable to infer schema for Orc. It must be specified manually.")
+    }
+  }
   /**
    * Returns the actual schema of this data source reader, which may be different from the physical
    * schema of the underlying storage, as column pruning or other optimizations may happen.
@@ -81,10 +88,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
    * submitted.
    */
   override def readSchema(): StructType = {
-    OrcUtils.readSchema(sparkSession, files).getOrElse {
-      throw new AnalysisException(
-        s"Unable to infer schema for Orc. It must be specified manually.")
-    }
+    requiredSchema
   }
 
   /**
@@ -102,16 +106,16 @@ class OrcDataSourceReader(options: DataSourceOptions)
   override def createUnsafeRowReaderFactories: JList[DataReaderFactory[UnsafeRow]] = {
     val selectedPartitions =
       PartitionDirectory(InternalRow.empty, files.filter(f => isDataPath(f.getPath))) :: Nil
+    val defaultMaxSplitBytes =
+      sparkSession.sessionState.conf.filesMaxPartitionBytes
+    val openCostInBytes = sparkSession.sessionState.conf.filesOpenCostInBytes
+    val defaultParallelism = sparkSession.sparkContext.defaultParallelism
+    val totalBytes = selectedPartitions.flatMap(_.files.map(_.getLen + openCostInBytes)).sum
+    val bytesPerCore = totalBytes / defaultParallelism
+
+    val maxSplitBytes = Math.min(defaultMaxSplitBytes, Math.max(openCostInBytes, bytesPerCore))
     val splitFiles = selectedPartitions.flatMap { partition =>
       partition.files.flatMap { file =>
-        val defaultMaxSplitBytes =
-          sparkSession.sessionState.conf.filesMaxPartitionBytes
-        val openCostInBytes = sparkSession.sessionState.conf.filesOpenCostInBytes
-        val defaultParallelism = sparkSession.sparkContext.defaultParallelism
-        val totalBytes = selectedPartitions.flatMap(_.files.map(_.getLen + openCostInBytes)).sum
-        val bytesPerCore = totalBytes / defaultParallelism
-
-        val maxSplitBytes = Math.min(defaultMaxSplitBytes, Math.max(openCostInBytes, bytesPerCore))
         val blockLocations = getBlockLocations(file)
         (0L until file.getLen by maxSplitBytes).map { offset =>
           val remaining = file.getLen - offset
@@ -122,9 +126,13 @@ class OrcDataSourceReader(options: DataSourceOptions)
         }
       }.toArray.sortBy(_.length)(implicitly[Ordering[Long]].reverse)
     }
+    val hadoopConf =
+      sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
+    val broadcastedConf =
+      sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
     splitFiles.map { partitionedFile =>
       new OrcUnsafeRowReaderFactory(
-        sparkSession, partitionedFile, readSchema(), readSchema(), options.asMap().asScala.toMap)
+        partitionedFile, dataSchema(), readSchema(), broadcastedConf)
         .asInstanceOf[DataReaderFactory[UnsafeRow]]
     }.asJava
   }
@@ -173,6 +181,10 @@ class OrcDataSourceReader(options: DataSourceOptions)
   override def enableBatchRead(): Boolean = {
     false
   }
+
+  override def pruneColumns(requiredSchema: StructType): Unit = {
+    this.requiredSchema = requiredSchema
+  }
 }
 
 case class OrcUnsafeRowDataReader(
@@ -207,16 +219,11 @@ case class OrcUnsafeRowDataReader(
 }
 
 case class OrcUnsafeRowReaderFactory(
-    sparkSession: SparkSession,
     file: PartitionedFile,
     dataSchema: StructType,
     requiredSchema: StructType,
-    options: Map[String, String])
+    broadcastedConf: Broadcast[SerializableConfiguration])
   extends DataReaderFactory[UnsafeRow] {
-  private def hadoopConf = sparkSession.sessionState
-    .newHadoopConfWithOptions(options)
-  private def broadcastedConf =
-    sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
   private def conf = broadcastedConf.value.value
   private def filePath = new Path(new URI(file.filePath))
   private def fileSplit = new FileSplit(filePath, file.start, file.length, Array.empty)
@@ -252,6 +259,5 @@ case class OrcUnsafeRowReaderFactory(
 }
 
 object OrcDataSource {
-  val NUM_PARTITIONS = "numPartitions"
   val PATH = "path"
 }
