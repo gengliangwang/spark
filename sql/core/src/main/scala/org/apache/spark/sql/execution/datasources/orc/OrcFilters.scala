@@ -54,7 +54,7 @@ import org.apache.spark.sql.types._
  * builder methods mentioned above can only be found in test code, where all tested filters are
  * known to be convertible.
  */
-private[orc] object OrcFilters {
+object OrcFilters {
 
   /**
    * Create ORC filter as a SearchArgument instance.
@@ -123,7 +123,7 @@ private[orc] object OrcFilters {
   /**
    * Build a SearchArgument and return the builder so far.
    */
-  private def buildSearchArgument(
+  def buildSearchArgument(
       dataTypeMap: Map[String, DataType],
       expression: Filter,
       builder: Builder): Option[Builder] = {
