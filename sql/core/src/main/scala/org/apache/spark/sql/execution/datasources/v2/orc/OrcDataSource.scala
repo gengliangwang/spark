@@ -106,6 +106,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
       }
     }.toArray.sortBy(_.length)(implicitly[Ordering[Long]].reverse)
   }
+  private val partitionSchema = fileIndex.partitionSchema
   var requiredSchema = dataSchema()
   val pushedFiltersArray = mutable.ArrayBuffer[Filter]()
 
@@ -140,7 +141,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
     val broadcastedConf =
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
     splitFiles.map { partitionedFile =>
-      new OrcBatchDataReaderFactory(partitionedFile, dataSchema(), readSchema(),
+      new OrcBatchDataReaderFactory(partitionedFile, dataSchema(), partitionSchema, readSchema(),
         enableOffHeapColumnVector, copyToSpark, capacity, broadcastedConf)
         .asInstanceOf[DataReaderFactory[ColumnarBatch]]
     }.asJava
@@ -157,7 +158,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
     splitFiles.map { partitionedFile =>
       new OrcUnsafeRowReaderFactory(
-        partitionedFile, dataSchema(), readSchema(), broadcastedConf)
+        partitionedFile, dataSchema(), partitionSchema, readSchema(), broadcastedConf)
         .asInstanceOf[DataReaderFactory[UnsafeRow]]
     }.asJava
   }
@@ -205,7 +206,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
 
   override def enableBatchRead(): Boolean = {
     val conf = sparkSession.sessionState.conf
-    val schema = readSchema()
+    val schema = readSchema() ++ partitionSchema
     conf.orcVectorizedReaderEnabled && conf.wholeStageEnabled &&
       schema.length <= conf.wholeStageMaxNumFields &&
       schema.forall(_.dataType.isInstanceOf[AtomicType])
@@ -335,6 +336,7 @@ case class OrcColumnarBatchDataReader(iter: RecordReaderIterator[ColumnarBatch])
 case class OrcBatchDataReaderFactory(
     file: PartitionedFile,
     dataSchema: StructType,
+    partitionSchema: StructType,
     requiredSchema: StructType,
     enableOffHeapColumnVector: Boolean,
     copyToSpark: Boolean,
@@ -365,7 +367,7 @@ case class OrcBatchDataReaderFactory(
       reader.getSchema,
       requestedColIds,
       requiredSchema.fields,
-      StructType(Seq.empty),
+      partitionSchema,
       file.partitionValues)
 
     val iter = new RecordReaderIterator(batchReader)
@@ -377,6 +379,7 @@ case class OrcBatchDataReaderFactory(
 case class OrcUnsafeRowReaderFactory(
     file: PartitionedFile,
     dataSchema: StructType,
+    partitionSchema: StructType,
     requiredSchema: StructType,
     broadcastedConf: Broadcast[SerializableConfiguration])
   extends DataReaderFactory[UnsafeRow] {
@@ -400,7 +403,7 @@ case class OrcUnsafeRowReaderFactory(
   private def orcRecordReader = new OrcInputFormat[OrcStruct]
     .createRecordReader(fileSplit, taskAttemptContext)
   private def iter = new RecordReaderIterator[OrcStruct](orcRecordReader)
-  private def fullSchema = requiredSchema.toAttributes
+  private def fullSchema = requiredSchema.toAttributes ++ partitionSchema.toAttributes
 
   private def deserializer = new OrcDeserializer(dataSchema, requiredSchema, requestedColIds)
 
