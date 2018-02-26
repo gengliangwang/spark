@@ -16,13 +16,15 @@
  */
 package org.apache.spark.sql.execution.datasources.v2.orc
 
-import java.io.File
 import java.net.URI
-import java.util.{ArrayList, List => JList}
+import java.util.{List => JList}
 
 import scala.collection.mutable
 import scala.collection.JavaConverters._
 
+import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper}
+import com.fasterxml.jackson.module.scala.DefaultScalaModule
+import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{BlockLocation, FileStatus, LocatedFileStatus, Path}
 import org.apache.hadoop.mapreduce.{JobID, TaskAttemptID, TaskID, TaskType}
@@ -31,7 +33,8 @@ import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.orc.{OrcConf, OrcFile}
 import org.apache.orc.mapred.OrcStruct
 import org.apache.orc.mapreduce.OrcInputFormat
-import org.apache.orc.storage.ql.io.sarg.{SearchArgument, SearchArgumentFactory}
+import org.apache.orc.storage.ql.io.sarg.SearchArgumentFactory
+
 import org.apache.spark.TaskContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{AnalysisException, SparkSession}
@@ -45,6 +48,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.sources.v2.{DataSourceOptions, DataSourceV2, ReadSupport}
 import org.apache.spark.sql.sources.v2.reader._
+import org.apache.spark.sql.sources.v2.reader.partitioning.{ClusteredDistribution, Distribution, Partitioning}
 import org.apache.spark.sql.types.{AtomicType, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SerializableConfiguration
@@ -69,7 +73,8 @@ class OrcDataSourceReader(options: DataSourceOptions)
   with SupportsScanColumnarBatch
   with SupportsScanUnsafeRow
   with SupportsPushDownRequiredColumns
-  with SupportsPushDownFilters {
+  with SupportsPushDownFilters
+  with SupportsReportPartitioning {
 
   private def sparkSession = SparkSession.getActiveSession
     .getOrElse(SparkSession.getDefaultSession.get)
@@ -233,6 +238,40 @@ class OrcDataSourceReader(options: DataSourceOptions)
   override def pushedFilters(): Array[Filter] = {
     pushedFiltersArray.toArray
   }
+
+  override def outputPartitioning(): Partitioning = {
+    val bucketing = options.get("bucket")
+    if (bucketing.isPresent) {
+      PartitionFromJson.fromJson(bucketing.get())
+    } else {
+      EmptyPartition
+    }
+  }
+}
+
+object PartitionFromJson {
+  val mapper = new ObjectMapper() with ScalaObjectMapper
+  mapper.registerModule(DefaultScalaModule)
+  mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+
+  case class Bucket(number: Int, columns: Array[String]) extends Partitioning {
+    override def numPartitions(): Int = number
+
+    override def satisfy(distribution: Distribution): Boolean = distribution match {
+      case c: ClusteredDistribution => columns.forall(c.clusteredColumns.contains(_))
+      case _ => false
+    }
+  }
+
+  def fromJson(json: String)(implicit m : Manifest[Bucket]): Partitioning = {
+    mapper.readValue[Bucket](json)
+  }
+}
+
+object EmptyPartition extends Partitioning {
+  override def numPartitions(): Int = 0
+
+  override def satisfy(distribution: Distribution): Boolean = false
 }
 
 case class OrcUnsafeRowDataReader(
