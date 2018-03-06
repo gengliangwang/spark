@@ -19,8 +19,8 @@ package org.apache.spark.sql.execution.datasources.v2.orc
 import java.net.URI
 import java.util.{List => JList}
 
-import scala.collection.mutable
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 
 import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper}
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
@@ -43,7 +43,6 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.execution.datasources.{InMemoryFileIndex, PartitionDirectory, PartitionedFile, RecordReaderIterator}
 import org.apache.spark.sql.execution.datasources.orc.{OrcColumnarBatchReader, OrcDeserializer, OrcFilters, OrcUtils}
-import org.apache.spark.sql.execution.datasources.orc.OrcFilters.buildSearchArgument
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.sources.v2.{DataSourceOptions, DataSourceV2, ReadSupport}
@@ -72,8 +71,8 @@ class OrcDataSourceReader(options: DataSourceOptions)
   extends DataSourceReader
   with SupportsScanColumnarBatch
   with SupportsScanUnsafeRow
-  with SupportsPushDownRequiredColumns
   with SupportsPushDownFilters
+  with SupportsPushDownRequiredColumns
   with SupportsReportPartitioning {
 
   private def sparkSession = SparkSession.getActiveSession
@@ -107,10 +106,12 @@ class OrcDataSourceReader(options: DataSourceOptions)
     }.toArray.sortBy(_.length)(implicitly[Ordering[Long]].reverse)
   }
   private val partitionSchema = fileIndex.partitionSchema
-  var requiredSchema = dataSchema()
+  var requiredSchema: Option[StructType] = None
   val pushedFiltersArray = mutable.ArrayBuffer[Filter]()
+  private val hadoopConf =
+    sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
 
-  private def dataSchema(): StructType = {
+  private val dataSchema: StructType = {
     OrcUtils.readSchema(sparkSession, files).getOrElse {
       throw new AnalysisException(
         s"Unable to infer schema for Orc. It must be specified manually.")
@@ -124,7 +125,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
    * submitted.
    */
   override def readSchema(): StructType = {
-    requiredSchema
+    requiredSchema.getOrElse(dataSchema)
   }
 
   /**
@@ -136,12 +137,12 @@ class OrcDataSourceReader(options: DataSourceOptions)
     val enableOffHeapColumnVector = sqlConf.offHeapColumnVectorEnabled
     val capacity = sqlConf.orcVectorizedReaderBatchSize
     val copyToSpark = sparkSession.sessionState.conf.getConf(SQLConf.ORC_COPY_BATCH_TO_SPARK)
-    val hadoopConf =
-      sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
+//    val hadoopConf =
+//      sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
     val broadcastedConf =
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
     splitFiles.map { partitionedFile =>
-      new OrcBatchDataReaderFactory(partitionedFile, dataSchema(), partitionSchema, readSchema(),
+      new OrcBatchDataReaderFactory(partitionedFile, dataSchema, partitionSchema, readSchema(),
         enableOffHeapColumnVector, copyToSpark, capacity, broadcastedConf)
         .asInstanceOf[DataReaderFactory[ColumnarBatch]]
     }.asJava
@@ -152,13 +153,13 @@ class OrcDataSourceReader(options: DataSourceOptions)
    * but returns data in unsafe row format.
    */
   override def createUnsafeRowReaderFactories: JList[DataReaderFactory[UnsafeRow]] = {
-    val hadoopConf =
-      sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
+//    val hadoopConf =
+//      sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
     val broadcastedConf =
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
     splitFiles.map { partitionedFile =>
       new OrcUnsafeRowReaderFactory(
-        partitionedFile, dataSchema(), partitionSchema, readSchema(), broadcastedConf)
+        partitionedFile, dataSchema, partitionSchema, readSchema(), broadcastedConf)
         .asInstanceOf[DataReaderFactory[UnsafeRow]]
     }.asJava
   }
@@ -213,27 +214,36 @@ class OrcDataSourceReader(options: DataSourceOptions)
   }
 
   override def pruneColumns(requiredSchema: StructType): Unit = {
-    this.requiredSchema = requiredSchema
+    this.requiredSchema = Some(requiredSchema)
   }
 
   override def pushFilters(filters: Array[Filter]): Array[Filter] = {
-    val dataTypeMap = dataSchema().map(f => f.name -> f.dataType).toMap
-    val ret = mutable.ArrayBuffer[Filter]()
-    filters.foreach { f =>
-      val arg = OrcFilters.buildSearchArgument(dataTypeMap, f, SearchArgumentFactory.newBuilder())
-      if(arg.isDefined) {
-        pushedFiltersArray += f
-      } else {
-        ret += f
+    if (!sparkSession.sessionState.conf.orcFilterPushDown) {
+      filters
+    } else {
+      pushedFiltersArray.clear()
+      val dataTypeMap = dataSchema.map(f => f.name -> f.dataType).toMap
+      val ret = mutable.ArrayBuffer[Filter]()
+      filters.foreach { f =>
+        val arg = OrcFilters.buildSearchArgument(dataTypeMap, f, SearchArgumentFactory.newBuilder())
+        if (arg.isDefined) {
+          pushedFiltersArray += f
+        } else {
+          ret += f
+        }
       }
+ //    val searchArgument = for {
+ //    // Combines all convertible filters using `And` to produce a single conjunction
+ //      conjunction <- pushedFiltersArray.reduceOption(org.apache.spark.sql.sources.And)
+ //      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
+ //    builder <- buildSearchArgument(dataTypeMap, conjunction, SearchArgumentFactory.newBuilder())
+ //    } yield builder.build()
+
+      OrcFilters.createFilter(dataSchema, filters).foreach { f =>
+        OrcInputFormat.setSearchArgument(hadoopConf, f, dataSchema.fieldNames)
+      }
+      ret.toArray
     }
-    for {
-    // Combines all convertible filters using `And` to produce a single conjunction
-      conjunction <- pushedFiltersArray.reduceOption(org.apache.spark.sql.sources.And)
-      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
-      builder <- buildSearchArgument(dataTypeMap, conjunction, SearchArgumentFactory.newBuilder())
-    } yield builder.build()
-    ret.toArray
   }
 
   override def pushedFilters(): Array[Filter] = {
