@@ -88,6 +88,10 @@ abstract class OrcTest extends QueryTest with SQLTestUtils with BeforeAndAfterAl
     spark.read.format(orcFormat).load(path)
   }
 
+  protected def loadOrcFileWithOptions(path: String, key: String, value: String): DataFrame = {
+    spark.read.option(key, value).format(orcFormat).load(path)
+  }
+
   protected def loadOrcFile(paths: String*): DataFrame = {
     spark.read.format(orcFormat).load(paths: _*)
   }

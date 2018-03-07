@@ -129,8 +129,7 @@ abstract class OrcV2QueryTest extends OrcTest {
       // ppd:
       // leaf-0 = (LESS_THAN_EQUALS age 5)
       // expr = leaf-0
-      sql("SELECT name FROM t WHERE age > 5 AND age < 8").show()
-      assert(sql("SELECT name FROM t WHERE age > 5 AND age < 8").count() === 2)
+      assert(sql("SELECT name FROM t WHERE age <= 5").count() === 5)
 
       // ppd:
       // leaf-0 = (LESS_THAN_EQUALS age 5)
@@ -365,7 +364,7 @@ abstract class OrcV2QueryTest extends OrcTest {
     }
   }
 
-  ignore("SPARK-10623 Enable ORC PPD") {
+  test("SPARK-10623 Enable ORC PPD") {
     withTempPath { dir =>
       withSQLConf(SQLConf.ORC_FILTER_PUSHDOWN_ENABLED.key -> "true") {
         import testImplicits._
@@ -431,7 +430,7 @@ abstract class OrcV2QueryTest extends OrcTest {
     }
   }
 
-  ignore("SPARK-15198 Support for pushing down filters for boolean types") {
+  test("SPARK-15198 Support for pushing down filters for boolean types") {
     withSQLConf(SQLConf.ORC_FILTER_PUSHDOWN_ENABLED.key -> "true") {
       val data = (0 until 10).map(_ => (true, false))
       withOrcFile(data) { file =>
@@ -444,7 +443,7 @@ abstract class OrcV2QueryTest extends OrcTest {
     }
   }
 
-  ignore("Support for pushing down filters for decimal types") {
+  test("Support for pushing down filters for decimal types") {
     withSQLConf(SQLConf.ORC_FILTER_PUSHDOWN_ENABLED.key -> "true") {
       val data = (0 until 10).map(i => Tuple1(BigDecimal.valueOf(i)))
       withTempPath { file =>
@@ -460,7 +459,7 @@ abstract class OrcV2QueryTest extends OrcTest {
     }
   }
 
-  ignore("Support for pushing down filters for timestamp types") {
+  test("Support for pushing down filters for timestamp types") {
     withSQLConf(SQLConf.ORC_FILTER_PUSHDOWN_ENABLED.key -> "true") {
       val timeString = "2015-08-20 14:57:00"
       val data = (0 until 10).map { i =>
@@ -526,7 +525,7 @@ abstract class OrcV2QueryTest extends OrcTest {
     }
   }
 
-  test("read from multiple orc input paths") {
+  ignore("read from multiple orc input paths") {
     val path1 = Utils.createTempDir()
     val path2 = Utils.createTempDir()
     makeOrcFile((1 to 10).map(Tuple1.apply), path1)

@@ -228,8 +228,6 @@ class OrcDataSourceReader(options: DataSourceOptions)
         val arg = OrcFilters.buildSearchArgument(dataTypeMap, f, SearchArgumentFactory.newBuilder())
         if (arg.isDefined) {
           pushedFiltersArray += f
-        } else {
-          ret += f
         }
       }
  //    val searchArgument = for {
@@ -242,7 +240,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
       OrcFilters.createFilter(dataSchema, filters).foreach { f =>
         OrcInputFormat.setSearchArgument(hadoopConf, f, dataSchema.fieldNames)
       }
-      ret.toArray
+      filters
     }
   }
 
@@ -326,7 +324,9 @@ case class OrcColumnarBatchDataReader(iter: RecordReaderIterator[ColumnarBatch])
    *
    * @throws IOException if failure happens during disk/network IO like reading files.
    */
-  override def next(): Boolean = iter.hasNext
+  override def next(): Boolean = {
+    iter.nonEmpty && iter.hasNext
+  }
 
   /**
    * Return the current record. This method should return same value until `next` is called.
@@ -357,8 +357,6 @@ case class OrcBatchDataReaderFactory(
   private def filePath = new Path(new URI(file.filePath))
   private def fileSplit = new FileSplit(filePath, file.start, file.length, Array.empty)
   private def attemptId = new TaskAttemptID(new TaskID(new JobID(), TaskType.MAP, 0), 0)
-  private def taskConf = new Configuration(conf)
-  private def taskAttemptContext = new TaskAttemptContextImpl(taskConf, attemptId)
   private def fs = filePath.getFileSystem(conf)
   private def readerOptions = OrcFile.readerOptions(conf).filesystem(fs)
   private def reader = OrcFile.createReader(filePath, readerOptions)
@@ -372,6 +370,15 @@ case class OrcBatchDataReaderFactory(
     val batchReader = new OrcColumnarBatchReader(
       enableOffHeapColumnVector && taskContext.isDefined, copyToSpark, capacity)
 
+    val iter = new RecordReaderIterator(batchReader)
+    Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => iter.close()))
+
+    val taskConf = new Configuration(conf)
+    taskConf.set(OrcConf.INCLUDE_COLUMNS.getAttribute,
+      requestedColIds.filter(_ != -1).sorted.mkString(","))
+    val taskAttemptContext = new TaskAttemptContextImpl(taskConf, attemptId)
+
+    println(fileSplit.getPath)
     batchReader.initialize(fileSplit, taskAttemptContext)
     batchReader.initBatch(
       reader.getSchema,
@@ -379,9 +386,6 @@ case class OrcBatchDataReaderFactory(
       requiredSchema.fields,
       partitionSchema,
       file.partitionValues)
-
-    val iter = new RecordReaderIterator(batchReader)
-    Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => iter.close()))
     OrcColumnarBatchDataReader(iter)
   }
 }

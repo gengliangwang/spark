@@ -63,7 +63,7 @@ abstract class OrcPartitionDiscoveryTest extends OrcTest {
           makePartitionDir(base, defaultPartitionName, "pi" -> pi, "ps" -> ps))
       }
 
-      spark.read.orc(base.getCanonicalPath).createOrReplaceTempView("t")
+      loadOrcFile(base.getCanonicalPath).createOrReplaceTempView("t")
 
       withTempTable("t") {
         checkAnswer(
@@ -110,7 +110,7 @@ abstract class OrcPartitionDiscoveryTest extends OrcTest {
           makePartitionDir(base, defaultPartitionName, "pi" -> pi, "ps" -> ps))
       }
 
-      spark.read.orc(base.getCanonicalPath).createOrReplaceTempView("t")
+      loadOrcFile(base.getCanonicalPath).createOrReplaceTempView("t")
 
       withTempTable("t") {
         checkAnswer(
@@ -158,10 +158,8 @@ abstract class OrcPartitionDiscoveryTest extends OrcTest {
           (1 to 10).map(i => OrcParData(i, i.toString)),
           makePartitionDir(base, defaultPartitionName, "pi" -> pi, "ps" -> ps))
       }
-
-      spark.read
-        .option("hive.exec.default.partition.name", defaultPartitionName)
-        .orc(base.getCanonicalPath)
+      loadOrcFileWithOptions(base.getCanonicalPath,
+        "hive.exec.default.partition.name", defaultPartitionName)
         .createOrReplaceTempView("t")
 
       withTempTable("t") {
@@ -201,9 +199,8 @@ abstract class OrcPartitionDiscoveryTest extends OrcTest {
           makePartitionDir(base, defaultPartitionName, "pi" -> pi, "ps" -> ps))
       }
 
-      spark.read
-        .option("hive.exec.default.partition.name", defaultPartitionName)
-        .orc(base.getCanonicalPath)
+      loadOrcFileWithOptions(base.getCanonicalPath,
+        "hive.exec.default.partition.name", defaultPartitionName)
         .createOrReplaceTempView("t")
 
       withTempTable("t") {
