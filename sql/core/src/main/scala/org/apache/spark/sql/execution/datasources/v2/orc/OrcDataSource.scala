@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.execution.datasources.v2.orc
 
+import java.io.IOException
 import java.net.URI
 import java.util.{List => JList}
 
@@ -34,8 +35,8 @@ import org.apache.orc.{OrcConf, OrcFile}
 import org.apache.orc.mapred.OrcStruct
 import org.apache.orc.mapreduce.OrcInputFormat
 import org.apache.orc.storage.ql.io.sarg.SearchArgumentFactory
-
 import org.apache.spark.TaskContext
+
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
@@ -343,6 +344,20 @@ case class OrcColumnarBatchDataReader(iter: RecordReaderIterator[ColumnarBatch])
   }
 }
 
+object EmptyOrcColumnarBatchDataReader extends DataReader[ColumnarBatch] {
+  override def next(): Boolean = false
+
+  /**
+   * Return the current record. This method should return same value until `next` is called.
+   *
+   * If this method fails (by throwing an exception), the corresponding Spark task would fail and
+   * get retried until hitting the maximum retry times.
+   */
+  override def get(): ColumnarBatch = throw new IOException("No record should be returned")
+
+  override def close(): Unit = {}
+}
+
 case class OrcBatchDataReaderFactory(
     file: PartitionedFile,
     dataSchema: StructType,
@@ -353,40 +368,49 @@ case class OrcBatchDataReaderFactory(
     capacity: Int,
     broadcastedConf: Broadcast[SerializableConfiguration])
   extends DataReaderFactory[ColumnarBatch] {
-  private def conf = broadcastedConf.value.value
-  private def filePath = new Path(new URI(file.filePath))
-  private def fileSplit = new FileSplit(filePath, file.start, file.length, Array.empty)
-  private def attemptId = new TaskAttemptID(new TaskID(new JobID(), TaskType.MAP, 0), 0)
-  private def fs = filePath.getFileSystem(conf)
-  private def readerOptions = OrcFile.readerOptions(conf).filesystem(fs)
-  private def reader = OrcFile.createReader(filePath, readerOptions)
-  private def requestedColIdsOrEmptyFile = OrcUtils.requestedColumnIds(
-    true, dataSchema, requiredSchema, reader, conf)
-  private def requestedColIds = requestedColIdsOrEmptyFile.get
-  assert(requestedColIds.length == requiredSchema.length,
-    "[BUG] requested column IDs do not match required schema")
   override def createDataReader(): DataReader[ColumnarBatch] = {
-    val taskContext = Option(TaskContext.get())
-    val batchReader = new OrcColumnarBatchReader(
-      enableOffHeapColumnVector && taskContext.isDefined, copyToSpark, capacity)
+    val conf = broadcastedConf.value.value
+    val filePath = new Path(new URI(file.filePath))
+    val fileSplit = new FileSplit(filePath, file.start, file.length, Array.empty)
+    val attemptId = new TaskAttemptID(new TaskID(new JobID(), TaskType.MAP, 0), 0)
+    val fs = filePath.getFileSystem(conf)
+    val readerOptions = OrcFile.readerOptions(conf).filesystem(fs)
+    val reader = OrcFile.createReader(filePath, readerOptions)
+    val requestedColIdsOrEmptyFile = OrcUtils.requestedColumnIds(
+      true, dataSchema, requiredSchema, reader, conf)
+    if (requestedColIdsOrEmptyFile.isEmpty) {
+      EmptyOrcColumnarBatchDataReader
+    } else {
+      val requestedColIds = requestedColIdsOrEmptyFile.get
+      assert(requestedColIds.length == requiredSchema.length,
+        "[BUG] requested column IDs do not match required schema")
+      val taskContext = Option(TaskContext.get())
+      val batchReader = new OrcColumnarBatchReader(
+        enableOffHeapColumnVector && taskContext.isDefined, copyToSpark, capacity)
 
-    val iter = new RecordReaderIterator(batchReader)
-    Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => iter.close()))
+      val iter = new RecordReaderIterator(batchReader)
+      Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => iter.close()))
 
-    val taskConf = new Configuration(conf)
-    taskConf.set(OrcConf.INCLUDE_COLUMNS.getAttribute,
-      requestedColIds.filter(_ != -1).sorted.mkString(","))
-    val taskAttemptContext = new TaskAttemptContextImpl(taskConf, attemptId)
+      val taskConf = new Configuration(conf)
+      taskConf.set(OrcConf.INCLUDE_COLUMNS.getAttribute,
+        requestedColIds.filter(_ != -1).sorted.mkString(","))
+      val taskAttemptContext = new TaskAttemptContextImpl(taskConf, attemptId)
 
-    println(fileSplit.getPath)
-    batchReader.initialize(fileSplit, taskAttemptContext)
-    batchReader.initBatch(
-      reader.getSchema,
-      requestedColIds,
-      requiredSchema.fields,
-      partitionSchema,
-      file.partitionValues)
-    OrcColumnarBatchDataReader(iter)
+      println(reader.getSchema)
+        println(requestedColIds)
+        println(requiredSchema.fields)
+        println(partitionSchema)
+        println(file.partitionValues)
+
+      batchReader.initialize(fileSplit, taskAttemptContext)
+      batchReader.initBatch(
+        reader.getSchema,
+        requestedColIds,
+        requiredSchema.fields,
+        partitionSchema,
+        file.partitionValues)
+      OrcColumnarBatchDataReader(iter)
+    }
   }
 }
 

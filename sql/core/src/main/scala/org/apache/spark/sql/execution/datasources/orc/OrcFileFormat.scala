@@ -193,7 +193,11 @@ class OrcFileFormat
           // after opening a file.
           val iter = new RecordReaderIterator(batchReader)
           Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => iter.close()))
-
+          println(reader.getSchema)
+          println(requestedColIds)
+          println(requiredSchema.fields)
+          println(partitionSchema)
+          println(file.partitionValues)
           batchReader.initialize(fileSplit, taskAttemptContext)
           batchReader.initBatch(
             reader.getSchema,
