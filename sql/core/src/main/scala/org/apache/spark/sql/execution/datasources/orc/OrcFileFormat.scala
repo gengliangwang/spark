@@ -195,7 +195,7 @@ class OrcFileFormat
           Option(TaskContext.get()).foreach(_.addTaskCompletionListener(_ => iter.close()))
           println(reader.getSchema)
           println(requestedColIds)
-          println(requiredSchema.fields)
+          println(requiredSchema)
           println(partitionSchema)
           println(file.partitionValues)
           batchReader.initialize(fileSplit, taskAttemptContext)

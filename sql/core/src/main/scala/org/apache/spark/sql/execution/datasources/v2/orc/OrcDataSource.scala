@@ -40,7 +40,7 @@ import org.apache.spark.TaskContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeRow}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, ExpressionSet, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
 import org.apache.spark.sql.execution.datasources.{InMemoryFileIndex, PartitionDirectory, PartitionedFile, RecordReaderIterator}
 import org.apache.spark.sql.execution.datasources.orc.{OrcColumnarBatchReader, OrcDeserializer, OrcFilters, OrcUtils}
@@ -72,7 +72,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
   extends DataSourceReader
   with SupportsScanColumnarBatch
   with SupportsScanUnsafeRow
-  with SupportsPushDownFilters
+  with SupportsPushDownCatalystFilters
   with SupportsPushDownRequiredColumns
   with SupportsReportPartitioning {
 
@@ -81,10 +81,9 @@ class OrcDataSourceReader(options: DataSourceOptions)
 
   private def filePath = new Path(options.get(OrcDataSource.PATH).orElse("."))
   private def fileIndex =
-    new InMemoryFileIndex(sparkSession, Seq(filePath), Map.empty, None)
+    new InMemoryFileIndex(sparkSession, Seq(filePath), options.asMap().asScala.toMap, None)
   private def files = fileIndex.allFiles()
-  private def selectedPartitions =
-    PartitionDirectory(InternalRow.empty, files.filter(f => isDataPath(f.getPath))) :: Nil
+  private def selectedPartitions = fileIndex.listFiles(pushedCatalystFilters(), Seq.empty)
   private def maxSplitBytes: Long = {
     val defaultMaxSplitBytes =
       sparkSession.sessionState.conf.filesMaxPartitionBytes
@@ -108,7 +107,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
   }
   private val partitionSchema = fileIndex.partitionSchema
   var requiredSchema: Option[StructType] = None
-  val pushedFiltersArray = mutable.ArrayBuffer[Filter]()
+  var pushedFiltersArray: Array[Expression] = Array.empty
   private val hadoopConf =
     sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
 
@@ -143,8 +142,8 @@ class OrcDataSourceReader(options: DataSourceOptions)
     val broadcastedConf =
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
     splitFiles.map { partitionedFile =>
-      new OrcBatchDataReaderFactory(partitionedFile, dataSchema, partitionSchema, readSchema(),
-        enableOffHeapColumnVector, copyToSpark, capacity, broadcastedConf)
+      new OrcBatchDataReaderFactory(partitionedFile, dataSchema, partitionSchema,
+        dataSchema, enableOffHeapColumnVector, copyToSpark, capacity, broadcastedConf)
         .asInstanceOf[DataReaderFactory[ColumnarBatch]]
     }.asJava
   }
@@ -218,36 +217,36 @@ class OrcDataSourceReader(options: DataSourceOptions)
     this.requiredSchema = Some(requiredSchema)
   }
 
-  override def pushFilters(filters: Array[Filter]): Array[Filter] = {
-    if (!sparkSession.sessionState.conf.orcFilterPushDown) {
-      filters
-    } else {
-      pushedFiltersArray.clear()
-      val dataTypeMap = dataSchema.map(f => f.name -> f.dataType).toMap
-      val ret = mutable.ArrayBuffer[Filter]()
-      filters.foreach { f =>
-        val arg = OrcFilters.buildSearchArgument(dataTypeMap, f, SearchArgumentFactory.newBuilder())
-        if (arg.isDefined) {
-          pushedFiltersArray += f
-        }
-      }
- //    val searchArgument = for {
- //    // Combines all convertible filters using `And` to produce a single conjunction
- //      conjunction <- pushedFiltersArray.reduceOption(org.apache.spark.sql.sources.And)
- //      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
- //    builder <- buildSearchArgument(dataTypeMap, conjunction, SearchArgumentFactory.newBuilder())
- //    } yield builder.build()
-
-      OrcFilters.createFilter(dataSchema, filters).foreach { f =>
-        OrcInputFormat.setSearchArgument(hadoopConf, f, dataSchema.fieldNames)
-      }
-      filters
-    }
-  }
-
-  override def pushedFilters(): Array[Filter] = {
-    pushedFiltersArray.toArray
-  }
+//  override def pushFilters(filters: Array[Filter]): Array[Filter] = {
+//    if (true) {
+//      filters
+//    } else {
+//      pushedFiltersArray.clear()
+//      val dataTypeMap = dataSchema.map(f => f.name -> f.dataType).toMap
+//      val ret = mutable.ArrayBuffer[Filter]()
+//      filters.foreach { f =>
+//    val arg = OrcFilters.buildSearchArgument(dataTypeMap, f, SearchArgumentFactory.newBuilder())
+//        if (arg.isDefined) {
+//          pushedFiltersArray += f
+//        }
+//      }
+// //    val searchArgument = for {
+// //    // Combines all convertible filters using `And` to produce a single conjunction
+// //      conjunction <- pushedFiltersArray.reduceOption(org.apache.spark.sql.sources.And)
+// //      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
+//    builder <- buildSearchArgument(dataTypeMap, conjunction, SearchArgumentFactory.newBuilder())
+// //    } yield builder.build()
+//
+//      OrcFilters.createFilter(dataSchema, filters).foreach { f =>
+//        OrcInputFormat.setSearchArgument(hadoopConf, f, dataSchema.fieldNames)
+//      }
+//      filters
+//    }
+//  }
+//
+//  override def pushedFilters(): Array[Filter] = {
+//    pushedFiltersArray.toArray
+//  }
 
   override def outputPartitioning(): Partitioning = {
     val bucketing = options.get("bucket")
@@ -256,6 +255,23 @@ class OrcDataSourceReader(options: DataSourceOptions)
     } else {
       EmptyPartition
     }
+  }
+
+  override def pushCatalystFilters(filters: Array[Expression]): Array[Expression] = {
+    if (true) {
+      filters
+    } else {
+      val partitionColumnNames = partitionSchema.toAttributes.map(_.name).toSet
+      val (partitionKeyFilters, otherFilters) = filters.partition {
+        _.references.map(_.name).toSet.subsetOf(partitionColumnNames)
+      }
+      pushedFiltersArray = partitionKeyFilters
+      otherFilters
+    }
+  }
+
+  override def pushedCatalystFilters(): Array[Expression] = {
+    pushedFiltersArray
   }
 }
 
@@ -395,10 +411,13 @@ case class OrcBatchDataReaderFactory(
       taskConf.set(OrcConf.INCLUDE_COLUMNS.getAttribute,
         requestedColIds.filter(_ != -1).sorted.mkString(","))
       val taskAttemptContext = new TaskAttemptContextImpl(taskConf, attemptId)
-
+      val partitionColumnNames = partitionSchema.toAttributes.map(_.name).toSet
+      val requiredFields = requiredSchema.fields.filterNot { f =>
+        partitionColumnNames.contains(f.name)
+      }
       println(reader.getSchema)
         println(requestedColIds)
-        println(requiredSchema.fields)
+        println(requiredFields)
         println(partitionSchema)
         println(file.partitionValues)
 
@@ -406,7 +425,7 @@ case class OrcBatchDataReaderFactory(
       batchReader.initBatch(
         reader.getSchema,
         requestedColIds,
-        requiredSchema.fields,
+        requiredFields,
         partitionSchema,
         file.partitionValues)
       OrcColumnarBatchDataReader(iter)
