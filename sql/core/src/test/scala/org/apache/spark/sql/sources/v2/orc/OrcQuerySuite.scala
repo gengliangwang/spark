@@ -62,7 +62,7 @@ case class Contact(name: String, phone: String)
 
 case class Person(name: String, age: Int, contacts: Seq[Contact])
 
-abstract class OrcV2QueryTest extends OrcTest {
+abstract class OrcQueryTest extends OrcTest {
   import testImplicits._
 
   test("Read/write All Types") {
@@ -581,7 +581,7 @@ abstract class OrcV2QueryTest extends OrcTest {
   }
 }
 
-class OrcV2QuerySuite extends OrcV2QueryTest with SharedSQLContext {
+class OrcQuerySuite extends OrcQueryTest with SharedSQLContext {
   import testImplicits._
 
   test("LZO compression options for writing to an ORC file") {
