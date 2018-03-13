@@ -42,7 +42,7 @@ import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, ExpressionSet, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.GenerateUnsafeProjection
-import org.apache.spark.sql.execution.datasources.{InMemoryFileIndex, PartitionDirectory, PartitionedFile, RecordReaderIterator}
+import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.orc.{OrcColumnarBatchReader, OrcDeserializer, OrcFilters, OrcUtils}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.Filter
@@ -106,17 +106,22 @@ class OrcDataSourceReader(options: DataSourceOptions)
     }.toArray.sortBy(_.length)(implicitly[Ordering[Long]].reverse)
   }
   private val partitionSchema = fileIndex.partitionSchema
-  var requiredSchema: Option[StructType] = None
-  var pushedFiltersArray: Array[Expression] = Array.empty
-  private val hadoopConf =
-    sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
 
   private val dataSchema: StructType = {
-    OrcUtils.readSchema(sparkSession, files).getOrElse {
+    val schema = OrcUtils.readSchema(sparkSession, files).getOrElse {
       throw new AnalysisException(
         s"Unable to infer schema for Orc. It must be specified manually.")
     }
+    val schemaNames = schema.map(_.name).toSet
+    val additionalPartitionSchema = partitionSchema.filterNot{ field =>
+      schemaNames.contains(field.name)
+    }
+    StructType(schema ++ additionalPartitionSchema)
   }
+  var requiredSchema = dataSchema
+  var pushedFiltersArray: Array[Expression] = Array.empty
+  private val hadoopConf =
+    sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
   /**
    * Returns the actual schema of this data source reader, which may be different from the physical
    * schema of the underlying storage, as column pruning or other optimizations may happen.
@@ -125,9 +130,12 @@ class OrcDataSourceReader(options: DataSourceOptions)
    * submitted.
    */
   override def readSchema(): StructType = {
-    requiredSchema.getOrElse(dataSchema)
+    requiredSchema
   }
 
+  override def pruneColumns(requiredSchema: StructType): Unit = {
+    this.requiredSchema = requiredSchema
+  }
   /**
    * Similar to {@link DataSourceReader#createDataReaderFactories()}, but returns columnar data
    * in batches.
@@ -141,9 +149,13 @@ class OrcDataSourceReader(options: DataSourceOptions)
 //      sparkSession.sessionState.newHadoopConfWithOptions(options.asMap().asScala.toMap)
     val broadcastedConf =
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
+    val partitionColumnNames = partitionSchema.toAttributes.map(_.name).toSet
+    val s = readSchema().filterNot { field =>
+      partitionColumnNames.contains(field.name)
+    }
     splitFiles.map { partitionedFile =>
       new OrcBatchDataReaderFactory(partitionedFile, dataSchema, partitionSchema,
-        dataSchema, enableOffHeapColumnVector, copyToSpark, capacity, broadcastedConf)
+        StructType(s), enableOffHeapColumnVector, copyToSpark, capacity, broadcastedConf)
         .asInstanceOf[DataReaderFactory[ColumnarBatch]]
     }.asJava
   }
@@ -213,41 +225,6 @@ class OrcDataSourceReader(options: DataSourceOptions)
       schema.forall(_.dataType.isInstanceOf[AtomicType])
   }
 
-  override def pruneColumns(requiredSchema: StructType): Unit = {
-    this.requiredSchema = Some(requiredSchema)
-  }
-
-//  override def pushFilters(filters: Array[Filter]): Array[Filter] = {
-//    if (true) {
-//      filters
-//    } else {
-//      pushedFiltersArray.clear()
-//      val dataTypeMap = dataSchema.map(f => f.name -> f.dataType).toMap
-//      val ret = mutable.ArrayBuffer[Filter]()
-//      filters.foreach { f =>
-//    val arg = OrcFilters.buildSearchArgument(dataTypeMap, f, SearchArgumentFactory.newBuilder())
-//        if (arg.isDefined) {
-//          pushedFiltersArray += f
-//        }
-//      }
-// //    val searchArgument = for {
-// //    // Combines all convertible filters using `And` to produce a single conjunction
-// //      conjunction <- pushedFiltersArray.reduceOption(org.apache.spark.sql.sources.And)
-// //      // Then tries to build a single ORC `SearchArgument` for the conjunction predicate
-//    builder <- buildSearchArgument(dataTypeMap, conjunction, SearchArgumentFactory.newBuilder())
-// //    } yield builder.build()
-//
-//      OrcFilters.createFilter(dataSchema, filters).foreach { f =>
-//        OrcInputFormat.setSearchArgument(hadoopConf, f, dataSchema.fieldNames)
-//      }
-//      filters
-//    }
-//  }
-//
-//  override def pushedFilters(): Array[Filter] = {
-//    pushedFiltersArray.toArray
-//  }
-
   override def outputPartitioning(): Partitioning = {
     val bucketing = options.get("bucket")
     if (bucketing.isPresent) {
@@ -258,7 +235,7 @@ class OrcDataSourceReader(options: DataSourceOptions)
   }
 
   override def pushCatalystFilters(filters: Array[Expression]): Array[Expression] = {
-    if (true) {
+    if (!sparkSession.sessionState.conf.orcFilterPushDown) {
       filters
     } else {
       val partitionColumnNames = partitionSchema.toAttributes.map(_.name).toSet
@@ -266,6 +243,10 @@ class OrcDataSourceReader(options: DataSourceOptions)
         _.references.map(_.name).toSet.subsetOf(partitionColumnNames)
       }
       pushedFiltersArray = partitionKeyFilters
+      val dataFilters = otherFilters.flatMap(DataSourceStrategy.translateFilter)
+      OrcFilters.createFilter(dataSchema, dataFilters).foreach { f =>
+        OrcInputFormat.setSearchArgument(hadoopConf, f, dataSchema.fieldNames)
+      }
       otherFilters
     }
   }
@@ -341,9 +322,7 @@ case class OrcColumnarBatchDataReader(iter: RecordReaderIterator[ColumnarBatch])
    *
    * @throws IOException if failure happens during disk/network IO like reading files.
    */
-  override def next(): Boolean = {
-    iter.nonEmpty && iter.hasNext
-  }
+  override def next(): Boolean = iter.hasNext
 
   /**
    * Return the current record. This method should return same value until `next` is called.
@@ -415,17 +394,18 @@ case class OrcBatchDataReaderFactory(
       val requiredFields = requiredSchema.fields.filterNot { f =>
         partitionColumnNames.contains(f.name)
       }
-      println(reader.getSchema)
-        println(requestedColIds)
-        println(requiredFields)
-        println(partitionSchema)
-        println(file.partitionValues)
-
+      println(copyToSpark)
+      println("data schema: " + dataSchema)
+      println("reader schema: " + reader.getSchema)
+      requestedColIds.foreach(println)
+      println("require schema: " + requiredSchema)
+      println(partitionSchema)
+      println(file.partitionValues)
       batchReader.initialize(fileSplit, taskAttemptContext)
       batchReader.initBatch(
         reader.getSchema,
         requestedColIds,
-        requiredFields,
+        requiredSchema.fields,
         partitionSchema,
         file.partitionValues)
       OrcColumnarBatchDataReader(iter)
