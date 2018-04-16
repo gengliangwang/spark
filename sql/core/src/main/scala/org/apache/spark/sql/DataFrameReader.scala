@@ -189,13 +189,13 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
     }
 
     val allPaths = (CaseInsensitiveMap(extraOptions.toMap).get("path") ++ paths).toSeq
-    option("path", allPaths.mkString(","))
     val cls = DataSource.lookupDataSource(source, sparkSession.sessionState.conf, allPaths)
     if (classOf[DataSourceV2].isAssignableFrom(cls)) {
       val ds = cls.newInstance().asInstanceOf[DataSourceV2]
       if (ds.isInstanceOf[ReadSupport] || ds.isInstanceOf[ReadSupportWithSchema]) {
         val sessionOptions = DataSourceV2Utils.extractSessionConfigs(
           ds = ds, conf = sparkSession.sessionState.conf)
+        option("path", allPaths.mkString(","))
         Dataset.ofRows(sparkSession, DataSourceV2Relation.create(
           ds, extraOptions.toMap ++ sessionOptions,
           userSpecifiedSchema = userSpecifiedSchema))
