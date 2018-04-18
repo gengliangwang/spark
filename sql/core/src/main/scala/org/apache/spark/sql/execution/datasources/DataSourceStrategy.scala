@@ -37,8 +37,10 @@ import org.apache.spark.sql.catalyst.plans.physical.HashPartitioning
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{RowDataSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.command._
+import org.apache.spark.sql.execution.datasources.csv.CSVFileFormat
 import org.apache.spark.sql.execution.datasources.orc.OrcFileFormat
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
+import org.apache.spark.sql.execution.datasources.v2.csv.CSVDatasourceV2
 import org.apache.spark.sql.execution.datasources.v2.orc.OrcDataSourceV2
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources._
@@ -222,18 +224,22 @@ case class DataSourceAnalysis(conf: SQLConf) extends Rule[LogicalPlan] with Cast
  * @param sparkSession
  */
 class FallBackToOrcV1(sparkSession: SparkSession) extends Rule[LogicalPlan] {
-  private def convertToOrcV1(v2Relation: DataSourceV2Relation): LogicalPlan = {
+  private def convertToV1(v2Relation: DataSourceV2Relation, className: String): LogicalPlan = {
     val v1 = DataSource.apply(
       sparkSession = sparkSession,
       paths = Seq.empty,
       userSpecifiedSchema = v2Relation.userSpecifiedSchema,
-      className = classOf[OrcFileFormat].getCanonicalName,
+      className = className,
       options = v2Relation.options).resolveRelation()
     LogicalRelation(v1)
   }
   override def apply(plan: LogicalPlan): LogicalPlan = plan transform {
     case i @InsertIntoTable(d: DataSourceV2Relation, _, _, _, _)
-      if d.source.isInstanceOf[OrcDataSourceV2] => i.copy(table = convertToOrcV1(d))
+      if d.source.isInstanceOf[OrcDataSourceV2] =>
+        i.copy(table = convertToV1(d, classOf[OrcFileFormat].getCanonicalName))
+    case i @InsertIntoTable(d: DataSourceV2Relation, _, _, _, _)
+      if d.source.isInstanceOf[CSVDatasourceV2] =>
+        i.copy(table = convertToV1(d, classOf[CSVFileFormat].getCanonicalName))
   }
 }
 

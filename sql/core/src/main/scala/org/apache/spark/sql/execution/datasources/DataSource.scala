@@ -40,6 +40,7 @@ import org.apache.spark.sql.execution.datasources.jdbc.JdbcRelationProvider
 import org.apache.spark.sql.execution.datasources.json.JsonFileFormat
 import org.apache.spark.sql.execution.datasources.orc.OrcFileFormat
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
+import org.apache.spark.sql.execution.datasources.v2.csv.CSVDatasourceV2
 import org.apache.spark.sql.execution.datasources.v2.orc.OrcDataSourceV2
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.sources.{RateStreamProvider, TextSocketSourceProvider}
@@ -610,6 +611,12 @@ object DataSource extends Logging {
       case name if name.equalsIgnoreCase("orc") &&
           conf.getConf(SQLConf.ORC_IMPLEMENTATION) == "hive" =>
         "org.apache.spark.sql.hive.orc.OrcFileFormat"
+      case name if name.equalsIgnoreCase("csv") =>
+        if (paths.length == 1 && !disabledV2Readers.contains("csv")) {
+          classOf[CSVDatasourceV2].getCanonicalName
+        } else {
+          classOf[CSVFileFormat].getCanonicalName
+        }
       case name => name
     }
     val provider2 = s"$provider1.DefaultSource"
