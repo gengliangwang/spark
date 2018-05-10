@@ -20,10 +20,12 @@ import java.net.URI
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileStatus, Path}
-import org.apache.hadoop.mapreduce.{JobID, TaskAttemptID, TaskID, TaskType}
+import org.apache.hadoop.mapred.JobConf
+import org.apache.hadoop.mapreduce._
 import org.apache.hadoop.mapreduce.lib.input.FileSplit
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.orc.{OrcConf, OrcFile}
+import org.apache.orc.OrcConf.{COMPRESS, MAPRED_OUTPUT_SCHEMA}
 import org.apache.orc.mapred.OrcStruct
 import org.apache.orc.mapreduce.OrcInputFormat
 
@@ -40,7 +42,10 @@ import org.apache.spark.sql.types.{AtomicType, StructType}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.SerializableConfiguration
 
-class OrcDataSourceV2 extends FileDataSourceV2 with ReadSupport with ReadSupportWithSchema {
+class OrcDataSourceV2 extends FileDataSourceV2
+  with FileWriteSupport
+  with ReadSupport
+  with ReadSupportWithSchema {
   override def createReader(options: DataSourceOptions): DataSourceReader = {
     new OrcDataSourceReader(options, None)
   }
@@ -52,6 +57,41 @@ class OrcDataSourceV2 extends FileDataSourceV2 with ReadSupport with ReadSupport
   override def fallBackFileFormat: Class[_ <: FileFormat] = classOf[OrcFileFormat]
 
   override def shortName(): String = "orc"
+
+  override def prepareWrite(
+      sqlConf: SQLConf,
+      job: Job,
+      options: Map[String, String],
+      dataSchema: StructType): OutputWriterFactory = {
+    val orcOptions = new OrcOptions(options, sqlConf)
+
+    val conf = job.getConfiguration
+
+    conf.set(MAPRED_OUTPUT_SCHEMA.getAttribute, dataSchema.catalogString)
+
+    conf.set(COMPRESS.getAttribute, orcOptions.compressionCodec)
+
+    conf.asInstanceOf[JobConf]
+      .setOutputFormat(classOf[org.apache.orc.mapred.OrcOutputFormat[OrcStruct]])
+
+    new OutputWriterFactory {
+      override def newInstance(
+          path: String,
+          dataSchema: StructType,
+          context: TaskAttemptContext): OutputWriter = {
+        new OrcOutputWriter(path, dataSchema, context)
+      }
+
+      override def getFileExtension(context: TaskAttemptContext): String = {
+        val compressionExtension: String = {
+          val name = context.getConfiguration.get(COMPRESS.getAttribute)
+          OrcUtils.extensionsForCompressionCodecNames.getOrElse(name, "")
+        }
+
+        compressionExtension + ".orc"
+      }
+    }
+  }
 }
 
 case class OrcDataSourceReader(options: DataSourceOptions, userSpecifiedSchema: Option[StructType])

@@ -61,7 +61,7 @@ object FileFormatWriter extends Logging {
     outputColumns: Seq[Attribute])
 
   /** A shared job description for all the write tasks. */
-  private class WriteJobDescription(
+  case class WriteJobDescription(
       val uuid: String,  // prevent collision between different (appending) write jobs
       val serializableHadoopConf: SerializableConfiguration,
       val outputWriterFactory: OutputWriterFactory,
