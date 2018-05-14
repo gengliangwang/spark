@@ -22,6 +22,8 @@ import java.util.{Date, Locale, Properties, UUID}
 
 import scala.collection.JavaConverters._
 
+import com.fasterxml.jackson.databind.ObjectMapper
+
 import org.apache.spark.annotation.InterfaceStability
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.analysis.{EliminateSubqueryAliases, UnresolvedRelation}
@@ -181,6 +183,8 @@ final class DataFrameWriter[T] private[sql](ds: Dataset[T]) {
   @scala.annotation.varargs
   def partitionBy(colNames: String*): DataFrameWriter[T] = {
     this.partitioningColumns = Option(colNames)
+    val objectMapper = new ObjectMapper()
+    extraOptions += DataSourceOptions.PATHS_KEY -> objectMapper.writeValueAsString(colNames.toArray)
     this
   }
 

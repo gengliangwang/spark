@@ -164,24 +164,40 @@ public class DataSourceOptions {
   public static final String DATABASE_KEY = "database";
 
   /**
+   * The option key for partition column names
+   */
+  public static final String PARTITION_KEY = "partitionBy";
+
+  /**
    * Returns all the paths specified by both the singular path option and the multiple
    * paths option.
    */
   public String[] paths() {
     String[] singularPath =
       get(PATH_KEY).map(s -> new String[]{s}).orElseGet(() -> new String[0]);
-    Optional<String> pathsStr = get(PATHS_KEY);
-    if (pathsStr.isPresent()) {
+    String[] paths = unmarshalJsonStringArray(PATHS_KEY);
+    if (paths.length == 0) {
+      return singularPath;
+    } else {
+      return Stream.of(singularPath, paths).flatMap(Stream::of).toArray(String[]::new);
+
+    }
+  }
+
+  public String[] partitionColumns() {
+    return unmarshalJsonStringArray(PARTITION_KEY);
+  }
+
+  private String[] unmarshalJsonStringArray(String key) {
+    Optional<String> str = get(key);
+    if (str.isPresent()) {
       ObjectMapper objectMapper = new ObjectMapper();
       try {
-        String[] paths = objectMapper.readValue(pathsStr.get(), String[].class);
-        return Stream.of(singularPath, paths).flatMap(Stream::of).toArray(String[]::new);
+        return objectMapper.readValue(str.get(), String[].class);
       } catch (IOException e) {
-        return singularPath;
       }
-    } else {
-      return singularPath;
     }
+    return new String[0];
   }
 
   /**
