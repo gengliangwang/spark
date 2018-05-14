@@ -30,8 +30,8 @@ public interface ReadSupport extends DataSourceV2 {
   /**
    * Creates a {@link DataSourceReader} to scan the data from this data source.
    *
-   * If this method fails (by throwing an exception), the action would fail and no Spark job was
-   * submitted.
+   * If this method fails (by throwing an exception), the action would fail and no Spark job would
+   * be submitted.
    *
    * @param options the options for the returned data source reader, which is an immutable
    *                case-insensitive string-to-string map.
