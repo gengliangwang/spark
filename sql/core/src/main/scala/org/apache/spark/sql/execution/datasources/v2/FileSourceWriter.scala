@@ -101,7 +101,7 @@ case class FileDataWriter(
 
   override def commit(): WriterCommitMessage = {
     writer.close()
-    new FileDataWriterCommitMessage(committer.commitTask(taskAttemptContext))
+    FileDataWriterCommitMessage(committer.commitTask(taskAttemptContext))
   }
 
   override def abort(): Unit = {
