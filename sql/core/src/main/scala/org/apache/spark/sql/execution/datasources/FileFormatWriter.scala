@@ -278,7 +278,9 @@ object FileFormatWriter extends Logging {
     try {
       Utils.tryWithSafeFinallyAndFailureCallbacks(block = {
         // Execute the task to write rows out and commit the task.
-        writeTask.execute(iterator)
+        for (row <- iterator) {
+          writeTask.write(row)
+        }
         writeTask.releaseResources()
         writeTask.commit()
       })(catchBlock = {
@@ -342,10 +344,6 @@ object FileFormatWriter extends Logging {
     /** Trackers for computing various statistics on the data as it's being written out. */
     val statsTrackers: Seq[WriteTaskStatsTracker] =
       description.statsTrackers.map(_.newTaskInstance())
-    /**
-     * Writes data out to files.
-     */
-    def execute(iterator: Iterator[InternalRow]): Unit
 
     def releaseResources(): Unit = {
       if (currentWriter != null) {
@@ -380,8 +378,6 @@ object FileFormatWriter extends Logging {
       taskAttemptContext: TaskAttemptContext,
       committer: FileCommitProtocol
   ) extends ExecuteWriteTask(description, taskAttemptContext, committer) {
-    override def execute(iter: Iterator[InternalRow]): Unit = {}
-
     override def write(record: InternalRow): Unit = {}
   }
 
@@ -404,17 +400,6 @@ object FileFormatWriter extends Logging {
         context = taskAttemptContext)
 
       statsTrackers.map(_.newFile(currentPath))
-    }
-
-    override def execute(iter: Iterator[InternalRow]): Unit = {
-      fileCounter = 0
-      recordsInFile = 0L
-      newOutputWriter(fileCounter)
-
-      while (iter.hasNext) {
-        write(iter.next())
-      }
-      releaseResources()
     }
 
     override def write(record: InternalRow): Unit = {
@@ -537,14 +522,6 @@ object FileFormatWriter extends Logging {
         context = taskAttemptContext)
 
       statsTrackers.foreach(_.newFile(currentPath))
-    }
-
-    override def execute(iter: Iterator[InternalRow]): Unit = {
-      // If anything below fails, we should abort the task.
-      for (row <- iter) {
-        write(row)
-      }
-      releaseResources()
     }
 
     override def releaseResources(): Unit = {
