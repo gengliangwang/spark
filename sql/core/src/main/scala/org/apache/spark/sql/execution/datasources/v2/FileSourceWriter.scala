@@ -25,7 +25,7 @@ import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.spark.internal.io.{FileCommitProtocol, SparkHadoopWriterUtils}
 import org.apache.spark.internal.io.FileCommitProtocol.TaskCommitMessage
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.FileFormatWriter.WriteJobDescription
+import org.apache.spark.sql.execution.datasources.FileFormatWriter._
 import org.apache.spark.sql.sources.v2.writer._
 import org.apache.spark.util.SerializableConfiguration
 
@@ -36,7 +36,7 @@ class FileSourceWriter(
   extends DataSourceWriter
   with SupportsWriteInternalRow {
   override def commit(messages: Array[WriterCommitMessage]): Unit = {
-    committer.commitJob(job, messages.map(_.asInstanceOf[FileDataWriterCommitMessage].msg))
+    committer.commitJob(job, messages.map(_.asInstanceOf[WriteTaskResult].commitMsg))
   }
 
   override def useCommitCoordinator(): Boolean = false
@@ -74,7 +74,11 @@ case class FileDataWriterFactory (
       new TaskAttemptContextImpl(hadoopConf, taskAttemptId)
     }
     committer.setupTask(taskAttemptContext)
-    FileDataWriter(description, committer, taskAttemptContext)
+    if (description.partitionColumns.isEmpty) {
+      new SingleDirectoryWriteTask(description, taskAttemptContext, committer)
+    } else {
+      new DynamicPartitionWriteTask(description, taskAttemptContext, committer)
+    }
   }
 }
 

@@ -28,7 +28,7 @@ import org.apache.spark.internal.io.HadoopMapReduceCommitProtocol
 import org.apache.spark.sql.{SaveMode, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, DateTimeUtils}
-import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, OutputWriterFactory}
+import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, OutputWriterFactory, PartitioningUtils}
 import org.apache.spark.sql.execution.datasources.FileFormatWriter.WriteJobDescription
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
@@ -66,20 +66,23 @@ trait FileWriteSupport extends WriteSupport {
     lazy val metrics: Map[String, SQLMetric] = BasicWriteJobStatsTracker.metrics
     val serializableHadoopConf = new SerializableConfiguration(hadoopConf)
     val statsTracker = new BasicWriteJobStatsTracker(serializableHadoopConf, metrics)
+    val sqlConf = sparkSession.sessionState.conf
+    val partitionColumns = PartitioningUtils.partitionColumnsSchema(schema,
+      options.partitionColumns(), sqlConf.caseSensitiveAnalysis).toAttributes
     val description = new WriteJobDescription(
       uuid = UUID.randomUUID().toString,
       serializableHadoopConf = new SerializableConfiguration(job.getConfiguration),
       outputWriterFactory = outputWriterFactory,
       allColumns = allColumns,
       dataColumns = allColumns,
-      partitionColumns = Seq.empty,
+      partitionColumns = partitionColumns,
       bucketIdExpression = None,
       path = pathName,
       customPartitionLocations = Map.empty,
       maxRecordsPerFile = caseInsensitiveOptions.get("maxRecordsPerFile").map(_.toLong)
-        .getOrElse(sparkSession.sessionState.conf.maxRecordsPerFile),
+        .getOrElse(sqlConf.maxRecordsPerFile),
       timeZoneId = caseInsensitiveOptions.get(DateTimeUtils.TIMEZONE_OPTION)
-        .getOrElse(sparkSession.sessionState.conf.sessionLocalTimeZone),
+        .getOrElse(sqlConf.sessionLocalTimeZone),
       statsTrackers = Seq(statsTracker)
     )
 

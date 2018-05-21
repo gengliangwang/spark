@@ -281,16 +281,11 @@ object FileFormatWriter extends Logging {
         for (row <- iterator) {
           writeTask.write(row)
         }
-        writeTask.releaseResources()
         writeTask.commit()
       })(catchBlock = {
-        // If there is an error, release resource and then abort the task
-        try {
-          writeTask.releaseResources()
-        } finally {
-          writeTask.abort()
-          logError(s"Job $jobId aborted.")
-        }
+        // If there is an error, abort the task
+        writeTask.abort()
+        logError(s"Job $jobId aborted.")
       })
     } catch {
       case e: FetchFailedException =>
@@ -332,7 +327,7 @@ object FileFormatWriter extends Logging {
    * to commit or abort tasks. Exceptions thrown by the implementation of this trait will
    * automatically trigger task aborts.
    */
-  private abstract class ExecuteWriteTask(
+  abstract class ExecuteWriteTask(
       description: WriteJobDescription,
       taskAttemptContext: TaskAttemptContext,
       committer: FileCommitProtocol
@@ -362,18 +357,26 @@ object FileFormatWriter extends Logging {
      * driver too and used to e.g. update the metrics in UI.
      */
     override def commit(): WriteTaskResult = {
+      releaseResources()
+      committer.commitTask(taskAttemptContext)
       val summary = ExecutedWriteSummary(
         updatedPartitions = Set.empty,
         stats = statsTrackers.map(_.getFinalStats()))
       WriteTaskResult(committer.commitTask(taskAttemptContext), summary)
     }
 
-    override def abort(): Unit = committer.abortTask(taskAttemptContext)
+    override def abort(): Unit = {
+      try {
+        releaseResources()
+      } finally {
+        committer.abortTask(taskAttemptContext)
+      }
+    }
 
   }
 
   /** ExecuteWriteTask for empty partitions */
-  private class EmptyDirectoryWriteTask(
+  class EmptyDirectoryWriteTask(
       description: WriteJobDescription,
       taskAttemptContext: TaskAttemptContext,
       committer: FileCommitProtocol
@@ -382,7 +385,7 @@ object FileFormatWriter extends Logging {
   }
 
   /** Writes data to a single directory (used for non-dynamic-partition writes). */
-  private class SingleDirectoryWriteTask(
+  class SingleDirectoryWriteTask(
       description: WriteJobDescription,
       taskAttemptContext: TaskAttemptContext,
       committer: FileCommitProtocol)
@@ -401,7 +404,7 @@ object FileFormatWriter extends Logging {
 
       statsTrackers.map(_.newFile(currentPath))
     }
-
+    newOutputWriter(fileCounter)
     override def write(record: InternalRow): Unit = {
       if (description.maxRecordsPerFile > 0 && recordsInFile >= description.maxRecordsPerFile) {
         fileCounter += 1
@@ -423,7 +426,7 @@ object FileFormatWriter extends Logging {
    * Writes data to using dynamic partition writes, meaning this single function can write to
    * multiple directories (partitions) or files (bucketing).
    */
-  private class DynamicPartitionWriteTask(
+  class DynamicPartitionWriteTask(
       description: WriteJobDescription,
       taskAttemptContext: TaskAttemptContext,
       committer: FileCommitProtocol)
@@ -522,16 +525,6 @@ object FileFormatWriter extends Logging {
         context = taskAttemptContext)
 
       statsTrackers.foreach(_.newFile(currentPath))
-    }
-
-    override def releaseResources(): Unit = {
-      if (currentWriter != null) {
-        try {
-          currentWriter.close()
-        } finally {
-          currentWriter = null
-        }
-      }
     }
 
     override def write(record: InternalRow): Unit = {
