@@ -15,24 +15,24 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.execution.datasources.avro
+package org.apache.spark.sql.avro
 
-import org.apache.hadoop.mapreduce.TaskAttemptContext
+import org.apache.spark.sql.{DataFrame, DataFrameReader, DataFrameWriter}
 
-import org.apache.spark.sql.execution.datasources.{OutputWriter, OutputWriterFactory}
-import org.apache.spark.sql.types.StructType
+package object avro {
+  /**
+   * Adds a method, `avro`, to DataFrameWriter that allows you to write avro files using
+   * the DataFileWriter
+   */
+  implicit class AvroDataFrameWriter[T](writer: DataFrameWriter[T]) {
+    def avro: String => Unit = writer.format("com.databricks.spark.avro").save
+  }
 
-private[avro] class AvroOutputWriterFactory(
-    schema: StructType,
-    recordName: String,
-    recordNamespace: String) extends OutputWriterFactory {
-
-  override def getFileExtension(context: TaskAttemptContext): String = ".avro"
-
-  override def newInstance(
-      path: String,
-      dataSchema: StructType,
-      context: TaskAttemptContext): OutputWriter = {
-    new AvroOutputWriter(path, context, schema, recordName, recordNamespace)
+  /**
+   * Adds a method, `avro`, to DataFrameReader that allows you to read avro files using
+   * the DataFileReade
+   */
+  implicit class AvroDataFrameReader(reader: DataFrameReader) {
+    def avro: String => DataFrame = reader.format("com.databricks.spark.avro").load
   }
 }

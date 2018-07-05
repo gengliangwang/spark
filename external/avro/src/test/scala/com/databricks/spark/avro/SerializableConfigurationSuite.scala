@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.execution.datasources.avro
+package org.apache.spark.sql.avro
 
 import org.apache.hadoop.conf.Configuration
 
