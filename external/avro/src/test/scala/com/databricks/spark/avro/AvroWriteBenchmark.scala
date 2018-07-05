@@ -57,7 +57,7 @@ object AvroWriteBenchmark {
     Row(rand.nextString(defaultSize), rand.nextInt(), new Date(rand.nextLong()), rand.nextDouble(),
       BigDecimal(rand.nextDouble()).setScale(10, RoundingMode.HALF_UP),
       TestUtils.generateRandomArray(rand, defaultSize).asScala,
-      TestUtils.generateRandomMap(rand, defaultSize).asScala.toMap, Row(rand.nextInt()))
+      TestUtils.generateRandomMap(rand, defaultSize).asScala, Row(rand.nextInt()))
   }
 
   def main(args: Array[String]) {
@@ -92,3 +92,4 @@ object AvroWriteBenchmark {
     spark.sparkContext.stop()  // Otherwise scary exception message appears
   }
 }
+// scalastyle:on println

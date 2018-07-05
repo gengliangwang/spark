@@ -92,3 +92,4 @@ object AvroFileGenerator {
     println("Generation finished")
   }
 }
+// scalastyle:on println

@@ -25,7 +25,7 @@ import org.apache.spark.serializer.{JavaSerializer, KryoSerializer, SerializerIn
 class SerializableConfigurationSuite extends SparkFunSuite {
 
   private def testSerialization(serializer: SerializerInstance): Unit = {
-    import DefaultSource.SerializableConfiguration
+    import AvroFileFormat.SerializableConfiguration
     val conf = new SerializableConfiguration(new Configuration())
 
     val serialized = serializer.serialize(conf)

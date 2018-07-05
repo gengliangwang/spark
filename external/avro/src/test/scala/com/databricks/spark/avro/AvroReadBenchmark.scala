@@ -59,3 +59,4 @@ object AvroReadBenchmark {
     spark.sparkContext.stop()  // Otherwise scary exception message appears
   }
 }
+// scalastyle:on println

@@ -23,7 +23,6 @@ import java.util.zip.Deflater
 
 import scala.util.control.NonFatal
 
-import com.databricks.spark.avro.DefaultSource.{AvroSchema, IgnoreFilesWithoutExtensionProperty, SerializableConfiguration}
 import com.esotericsoftware.kryo.{Kryo, KryoSerializable}
 import com.esotericsoftware.kryo.io.{Input, Output}
 import org.apache.avro.{Schema, SchemaBuilder}
@@ -48,53 +47,52 @@ import org.apache.spark.sql.types.StructType
 private[avro] class AvroFileFormat extends FileFormat with DataSourceRegister {
   private val log = LoggerFactory.getLogger(getClass)
 
-  // TODO(josh): Investigate whether we actually need this equals(), and, if so, add
-  // tests for data source caching resolution in order to make sure this path is exercised
-  // and does not break. See https://github.com/databricks/spark/pull/170#discussion_r95915636
   override def equals(other: Any): Boolean = other match {
-    case _: DefaultSource => true
+    case _: AvroFileFormat => true
     case _ => false
   }
 
   // Dummy hashCode() to appease ScalaStyle.
-  // See https://github.com/databricks/spark/pull/170#discussion_r95915636
   override def hashCode(): Int = super.hashCode()
 
   override def inferSchema(
       spark: SparkSession,
       options: Map[String, String],
       files: Seq[FileStatus]): Option[StructType] = {
-    val conf = spark.sessionState.newHadoopConf()
+    val conf = spark.sparkContext.hadoopConfiguration
 
     // Schema evolution is not supported yet. Here we only pick a single random sample file to
     // figure out the schema of the whole dataset.
-    val sampleFile = if (conf.getBoolean(IgnoreFilesWithoutExtensionProperty, true)) {
-      files.find(_.getPath.getName.endsWith(".avro")).getOrElse {
-        throw new FileNotFoundException(
-          "No Avro files found. Hadoop option \"avro.mapred.ignore.inputs.without.extension\" is " +
-            "set to true. Do all input files have \".avro\" extension?"
-        )
+    val sampleFile =
+      if (conf.getBoolean(AvroFileFormat.IgnoreFilesWithoutExtensionProperty, true)) {
+        files.find(_.getPath.getName.endsWith(".avro")).getOrElse {
+          throw new FileNotFoundException(
+            "No Avro files found. Hadoop option \"avro.mapred.ignore.inputs.without.extension\" " +
+              " is set to true. Do all input files have \".avro\" extension?"
+          )
+        }
+      } else {
+        files.headOption.getOrElse {
+          throw new FileNotFoundException("No Avro files found.")
+        }
       }
-    } else {
-      files.headOption.getOrElse {
-        throw new FileNotFoundException("No Avro files found.")
-      }
-    }
 
     // User can specify an optional avro json schema.
-    val avroSchema = options.get(AvroSchema).map(new Schema.Parser().parse).getOrElse {
-      val in = new FsInput(sampleFile.getPath, conf)
-      try {
-        val reader = DataFileReader.openReader(in, new GenericDatumReader[GenericRecord]())
+    val avroSchema = options.get(AvroFileFormat.AvroSchema)
+      .map(new Schema.Parser().parse)
+      .getOrElse {
+        val in = new FsInput(sampleFile.getPath, conf)
         try {
-          reader.getSchema
+          val reader = DataFileReader.openReader(in, new GenericDatumReader[GenericRecord]())
+          try {
+            reader.getSchema
+          } finally {
+            reader.close()
+          }
         } finally {
-          reader.close()
+          in.close()
         }
-      } finally {
-        in.close()
       }
-    }
 
     SchemaConverters.toSqlType(avroSchema).dataType match {
       case t: StructType => Some(t)
@@ -163,19 +161,19 @@ private[avro] class AvroFileFormat extends FileFormat with DataSourceRegister {
       hadoopConf: Configuration): (PartitionedFile) => Iterator[InternalRow] = {
 
     val broadcastedConf =
-      spark.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
+      spark.sparkContext.broadcast(new AvroFileFormat.SerializableConfiguration(hadoopConf))
 
     (file: PartitionedFile) => {
-      val log = LoggerFactory.getLogger(classOf[DefaultSource])
+      val log = LoggerFactory.getLogger(classOf[AvroFileFormat])
       val conf = broadcastedConf.value.value
-      val userProvidedSchema = options.get(AvroSchema).map(new Schema.Parser().parse)
+      val userProvidedSchema = options.get(AvroFileFormat.AvroSchema).map(new Schema.Parser().parse)
 
       // TODO Removes this check once `FileFormat` gets a general file filtering interface method.
       // Doing input file filtering is improper because we may generate empty tasks that process no
       // input files but stress the scheduler. We should probably add a more general input file
       // filtering mechanism for `FileFormat` data sources. See SPARK-16317.
       if (
-        conf.getBoolean(IgnoreFilesWithoutExtensionProperty, true) &&
+        conf.getBoolean(AvroFileFormat.IgnoreFilesWithoutExtensionProperty, true) &&
         !file.filePath.endsWith(".avro")
       ) {
         Iterator.empty

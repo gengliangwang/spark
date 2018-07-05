@@ -19,8 +19,7 @@ package org.apache.spark.sql.avro
 
 import java.io.{IOException, OutputStream}
 import java.nio.ByteBuffer
-import java.sql.Date
-import java.sql.Timestamp
+import java.sql.{Date, Timestamp}
 import java.util.HashMap
 
 import scala.collection.immutable.Map
