@@ -25,10 +25,10 @@
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
-  <groupId>com.databricks</groupId>
-  <artifactId>spark-avro_2.11</artifactId>
+  <groupId>org.apache.spark</groupId>
+  <artifactId>spark-sql-avro_2.11</artifactId>
   <properties>
-    <sbt.project.name>avro</sbt.project.name>
+    <sbt.project.name>sql-avro</sbt.project.name>
   </properties>
   <packaging>jar</packaging>
   <name>Spark Avro</name>
