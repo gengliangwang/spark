@@ -19,13 +19,13 @@ package org.apache.spark.sql.avro
 
 import java.io.{File, IOException}
 import java.nio.ByteBuffer
-import java.util
 
 import scala.collection.immutable.HashSet
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 
 import com.google.common.io.Files
+import java.util
 
 import org.apache.spark.sql.SparkSession
 

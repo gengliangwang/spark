@@ -18,8 +18,8 @@
 package org.apache.spark.sql.avro
 
 import org.apache.hadoop.conf.Configuration
-
 import org.apache.spark.{SparkConf, SparkFunSuite}
+
 import org.apache.spark.serializer.{JavaSerializer, KryoSerializer, SerializerInstance}
 
 class SerializableConfigurationSuite extends SparkFunSuite {

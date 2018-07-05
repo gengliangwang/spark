@@ -31,8 +31,10 @@ import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.generic.GenericData.{EnumSymbol, Fixed}
 import org.apache.commons.io.FileUtils
 
+import org.apache.spark.SparkContext
 import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql._
+import org.apache.spark.sql.avro.SchemaConverters.IncompatibleSchemaException
 import org.apache.spark.sql.types._
 
 class AvroSuite extends SparkFunSuite {

@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.avro
-
-import org.apache.spark.sql.{DataFrame, DataFrameReader, DataFrameWriter}
+package org.apache.spark.sql
 
 package object avro {
   /**
@@ -25,7 +23,7 @@ package object avro {
    * the DataFileWriter
    */
   implicit class AvroDataFrameWriter[T](writer: DataFrameWriter[T]) {
-    def avro: String => Unit = writer.format("com.databricks.spark.avro").save
+    def avro: String => Unit = writer.format("avro").save
   }
 
   /**
@@ -33,6 +31,9 @@ package object avro {
    * the DataFileReade
    */
   implicit class AvroDataFrameReader(reader: DataFrameReader) {
-    def avro: String => DataFrame = reader.format("com.databricks.spark.avro").load
+    def avro: String => DataFrame = reader.format("avro").load
+
+    @scala.annotation.varargs
+    def avro(sources: String*): DataFrame = reader.format("avro").load(sources: _*)
   }
 }
