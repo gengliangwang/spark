@@ -45,7 +45,7 @@ import org.apache.spark.sql.execution.datasources.{FileFormat, OutputWriterFacto
 import org.apache.spark.sql.sources.{DataSourceRegister, Filter}
 import org.apache.spark.sql.types.StructType
 
-private[avro] class DefaultSource extends FileFormat with DataSourceRegister {
+private[avro] class AvroFileFormat extends FileFormat with DataSourceRegister {
   private val log = LoggerFactory.getLogger(getClass)
 
   // TODO(josh): Investigate whether we actually need this equals(), and, if so, add
@@ -245,7 +245,7 @@ private[avro] class DefaultSource extends FileFormat with DataSourceRegister {
   }
 }
 
-private[avro] object DefaultSource {
+private[avro] object AvroFileFormat {
   val IgnoreFilesWithoutExtensionProperty = "avro.mapred.ignore.inputs.without.extension"
 
   val AvroSchema = "avroSchema"
