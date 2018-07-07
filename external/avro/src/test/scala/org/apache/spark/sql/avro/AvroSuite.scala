@@ -31,26 +31,14 @@ import org.apache.avro.generic.{GenericData, GenericDatumWriter, GenericRecord}
 import org.apache.avro.generic.GenericData.{EnumSymbol, Fixed}
 import org.apache.commons.io.FileUtils
 
-import org.apache.spark.SparkContext
-import org.apache.spark.SparkFunSuite
 import org.apache.spark.sql._
 import org.apache.spark.sql.avro.SchemaConverters.IncompatibleSchemaException
+import org.apache.spark.sql.test.{SharedSQLContext, SQLTestUtils}
 import org.apache.spark.sql.types._
 
-class AvroSuite extends SparkFunSuite {
+class AvroSuite extends QueryTest with SharedSQLContext {
   val episodesFile = "src/test/resources/episodes.avro"
   val testFile = "src/test/resources/test.avro"
-
-  private var spark: SparkSession = _
-
-  override protected def beforeAll(): Unit = {
-    super.beforeAll()
-    spark = SparkSession.builder()
-      .master("local[2]")
-      .appName("AvroSuite")
-      .config("spark.sql.files.maxPartitionBytes", 1024)
-      .getOrCreate()
-  }
 
   override protected def afterAll(): Unit = {
     try {
