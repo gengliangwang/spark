@@ -21,6 +21,7 @@ import java.lang.{Double => JDouble, Long => JLong}
 import java.math.{BigDecimal => JBigDecimal}
 import java.util.{Locale, TimeZone}
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Try
 
@@ -490,6 +491,61 @@ object PartitioningUtils {
         throw new AnalysisException(s"Partition column `$col` not found in schema $schemaCatalog")
       }
     }).asNullable
+  }
+
+  def mergeDataAndPartitionSchema(
+      dataSchema: StructType,
+      partitionSchema: StructType,
+      caseSensitive: Boolean): (StructType, Map[String, StructField]) = {
+    val equality = columnNameEquality(caseSensitive)
+    val overlappedPartCols = mutable.Map.empty[String, StructField]
+    partitionSchema.foreach { partitionField =>
+      val partitionFieldName = getColName(partitionField, caseSensitive)
+      if (dataSchema.exists(getColName(_, caseSensitive) == partitionFieldName)) {
+        overlappedPartCols += partitionFieldName -> partitionField
+      }
+    }
+
+    // When data and partition schemas have overlapping columns, the output
+    // schema respects the order of the data schema for the overlapping columns, and it
+    // respects the data types of the partition schema.
+    val fullSchema =
+    StructType(dataSchema.map(f => overlappedPartCols.getOrElse(getColName(f, caseSensitive), f)) ++
+      partitionSchema.filterNot(f => overlappedPartCols.contains(getColName(f, caseSensitive))))
+    (fullSchema, overlappedPartCols.toMap)
+  }
+
+  def requestedPartitionColumnIds(
+      partitionSchema: StructType,
+      requiredSchema: StructType,
+      caseSensitive: Boolean): Array[Int] = {
+    val columnNameMap =
+      partitionSchema.fields.map(getColName(_, caseSensitive)).zipWithIndex.toMap
+    requiredSchema.fields.map { field =>
+      columnNameMap.getOrElse(getColName(field, caseSensitive), -1)
+    }
+  }
+
+  /**
+   * Returns a new StructType that is a copy of the original StructType, removing any items that
+   * also appear in other StructType. The order is preserved from the original StructType.
+   */
+  def subtractSchema(original: StructType, other: StructType, isCaseSensitive: Boolean)
+  : StructType = {
+    val otherNameSet = other.fields.map(getColName(_, isCaseSensitive)).toSet
+    val fields = original.fields.filterNot { field =>
+      otherNameSet.contains(getColName(field, isCaseSensitive))
+    }
+
+    StructType(fields)
+  }
+
+  private def getColName(f: StructField, caseSensitive: Boolean): String = {
+    if (caseSensitive) {
+      f.name
+    } else {
+      f.name.toLowerCase(Locale.ROOT)
+    }
   }
 
   private def columnNameEquality(caseSensitive: Boolean): (String, String) => Boolean = {

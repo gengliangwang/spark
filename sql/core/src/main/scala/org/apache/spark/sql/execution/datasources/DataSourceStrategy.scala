@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution.datasources
 
 import java.util.Locale
 import java.util.concurrent.Callable
+import javax.activation.FileDataSource
 
 import org.apache.hadoop.fs.Path
 
@@ -37,6 +38,7 @@ import org.apache.spark.sql.catalyst.plans.physical.HashPartitioning
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.{RowDataSourceScanExec, SparkPlan}
 import org.apache.spark.sql.execution.command._
+import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, FileDataSourceV2}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
@@ -213,6 +215,26 @@ case class DataSourceAnalysis(conf: SQLConf) extends Rule[LogicalPlan] with Cast
   }
 }
 
+/**
+ * Replace the V2 data source of table in [[InsertIntoTable]] to V1 [[FileFormat]].
+ * E.g, with temporary view `t` using [[FileDataSourceV2]], inserting into  view `t` fails
+ * since there is no correspoding physical plan.
+ * This is a temporary hack for making current data source V2 work.
+ */
+class FallBackFileDataSourceToV1(sparkSession: SparkSession) extends Rule[LogicalPlan] {
+  override def apply(plan: LogicalPlan): LogicalPlan = plan transform {
+    case i @InsertIntoTable(d: DataSourceV2Relation, _, _, _, _)
+      if d.source.isInstanceOf[FileDataSourceV2] =>
+      val v1FileFormat = d.source.asInstanceOf[FileDataSourceV2].fallBackFileFormat
+      val v1 = DataSource.apply(
+        sparkSession = sparkSession,
+        paths = d.v2Options.paths(),
+        userSpecifiedSchema = d.userSpecifiedSchema,
+        className = v1FileFormat.getCanonicalName,
+        options = d.options - "path").resolveRelation()
+      i.copy(table = LogicalRelation(v1))
+  }
+}
 
 /**
  * Replaces [[UnresolvedCatalogRelation]] with concrete relation logical plans.
