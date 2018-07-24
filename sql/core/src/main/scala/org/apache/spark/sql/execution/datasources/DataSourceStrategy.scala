@@ -21,6 +21,8 @@ import java.util.Locale
 import java.util.concurrent.Callable
 import javax.activation.FileDataSource
 
+import scala.collection.JavaConverters._
+
 import org.apache.hadoop.fs.Path
 
 import org.apache.spark.internal.Logging
@@ -41,6 +43,7 @@ import org.apache.spark.sql.execution.command._
 import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, FileDataSourceV2}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources._
+import org.apache.spark.sql.sources.v2.DataSourceOptions
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 
@@ -226,9 +229,11 @@ class FallBackFileDataSourceToV1(sparkSession: SparkSession) extends Rule[Logica
     case i @InsertIntoTable(d: DataSourceV2Relation, _, _, _, _)
       if d.source.isInstanceOf[FileDataSourceV2] =>
       val v1FileFormat = d.source.asInstanceOf[FileDataSourceV2].fallBackFileFormat
+      val v2Options = new DataSourceOptions(d.options.asJava)
+
       val v1 = DataSource.apply(
         sparkSession = sparkSession,
-        paths = d.v2Options.paths(),
+        paths = v2Options.paths(),
         userSpecifiedSchema = d.userSpecifiedSchema,
         className = v1FileFormat.getCanonicalName,
         options = d.options - "path").resolveRelation()
