@@ -19,8 +19,19 @@ package org.apache.spark.sql.sources.v2.reader;
 
 import java.io.Serializable;
 
-public interface InputSplit extends Serializable {
-  default String[] preferredLocations() {
-    return new String[0];
+import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.vectorized.ColumnarBatch;
+
+public interface SplitReaderProvider extends Serializable {
+  default InputPartitionReader<InternalRow> createRowReader(InputSplit split) {
+    throw new IllegalStateException("createRowReader is not implemented.");
+  }
+
+  default InputPartitionReader<ColumnarBatch> createColumnarReader(InputSplit split) {
+    throw new IllegalStateException("createColumnarReader is not implemented.");
+  }
+
+  default boolean supportColumnarReader() {
+    return false;
   }
 }

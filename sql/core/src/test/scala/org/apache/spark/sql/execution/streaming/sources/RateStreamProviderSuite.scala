@@ -311,17 +311,20 @@ class RateSourceSuite extends StreamTest {
     val reader = new RateStreamContinuousReader(
       new DataSourceOptions(Map("numPartitions" -> "2", "rowsPerSecond" -> "20").asJava))
     reader.setStartOffset(Optional.empty())
-    val tasks = reader.planInputPartitions()
-    assert(tasks.size == 2)
+    val metadata = reader.getMetadata()
+    val splits = reader.getSplitManager(metadata).getSplits
+    assert(splits.size == 2)
 
-    val data = scala.collection.mutable.ListBuffer[Row]()
-    tasks.asScala.foreach {
-      case t: RateStreamContinuousInputPartition =>
+    val readerProvider = reader.getReaderProvider(metadata)
+    val data = scala.collection.mutable.ListBuffer[InternalRow]()
+    splits.foreach {
+      case t: RateStreamContinuousInputSplit =>
         val startTimeMs = reader.getStartOffset()
           .asInstanceOf[RateStreamOffset]
           .partitionToValueAndRunTimeMs(t.partitionIndex)
           .runTimeMs
-        val r = t.createPartitionReader().asInstanceOf[RateStreamContinuousInputPartitionReader]
+        val r = readerProvider.createRowReader(t)
+          .asInstanceOf[RateStreamContinuousInputPartitionReader]
         for (rowIndex <- 0 to 9) {
           r.next()
           data.append(r.get())

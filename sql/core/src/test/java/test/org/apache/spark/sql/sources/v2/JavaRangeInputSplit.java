@@ -15,12 +15,16 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.sources.v2.reader;
+package test.org.apache.spark.sql.sources.v2;
 
-import java.io.Serializable;
+import org.apache.spark.sql.sources.v2.reader.InputSplit;
 
-public interface InputSplit extends Serializable {
-  default String[] preferredLocations() {
-    return new String[0];
+class JavaRangeInputSplit implements InputSplit {
+  int start;
+  int end;
+
+  public JavaRangeInputSplit(int start, int end) {
+    this.start = start;
+    this.end = end;
   }
 }

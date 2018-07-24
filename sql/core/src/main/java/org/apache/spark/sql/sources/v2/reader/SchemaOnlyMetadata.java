@@ -17,10 +17,17 @@
 
 package org.apache.spark.sql.sources.v2.reader;
 
-import java.io.Serializable;
+import org.apache.spark.sql.types.StructType;
 
-public interface InputSplit extends Serializable {
-  default String[] preferredLocations() {
-    return new String[0];
+public class SchemaOnlyMetadata implements Metadata {
+  private StructType schema;
+
+  public SchemaOnlyMetadata(StructType schema) {
+    this.schema = schema;
+  }
+
+  @Override
+  public StructType getSchema() {
+    return schema;
   }
 }

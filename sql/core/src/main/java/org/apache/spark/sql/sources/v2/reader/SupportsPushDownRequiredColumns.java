@@ -26,7 +26,7 @@ import org.apache.spark.sql.types.StructType;
  * scan to reduce the size of the data to be read.
  */
 @InterfaceStability.Evolving
-public interface SupportsPushDownRequiredColumns extends DataSourceReader {
+public interface SupportsPushDownRequiredColumns extends Metadata {
 
   /**
    * Applies column pruning w.r.t. the given requiredSchema.

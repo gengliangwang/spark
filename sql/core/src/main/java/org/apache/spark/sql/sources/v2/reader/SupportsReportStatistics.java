@@ -33,5 +33,5 @@ public interface SupportsReportStatistics extends DataSourceReader {
   /**
    * Returns the basic statistics of this data source.
    */
-  Statistics getStatistics();
+  Statistics getStatistics(Metadata meta);
 }

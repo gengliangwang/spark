@@ -17,10 +17,6 @@
 
 package org.apache.spark.sql.sources.v2.reader;
 
-import java.io.Serializable;
-
-public interface InputSplit extends Serializable {
-  default String[] preferredLocations() {
-    return new String[0];
-  }
+public interface SplitManager {
+  InputSplit[] getSplits();
 }
