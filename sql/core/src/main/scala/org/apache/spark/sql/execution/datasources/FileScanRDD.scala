@@ -21,6 +21,7 @@ import org.apache.spark.{Partition => RDDPartition, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.sources.v2.reader.InputSplit
 
 /**
  * A part (i.e. "block") of a single file that should be read, along with partition column values
@@ -37,7 +38,7 @@ case class PartitionedFile(
     filePath: String,
     start: Long,
     length: Long,
-    @transient locations: Array[String] = Array.empty) {
+    @transient locations: Array[String] = Array.empty) extends InputSplit {
   override def toString: String = {
     s"path: $filePath, range: $start-${start + length}, partition values: $partitionValues"
   }
@@ -47,7 +48,8 @@ case class PartitionedFile(
  * A collection of file blocks that should be read as a single task
  * (possibly from multiple partitioned directories).
  */
-case class FilePartition(index: Int, files: Seq[PartitionedFile]) extends RDDPartition
+case class FilePartition(index: Int, files: Seq[PartitionedFile])
+  extends RDDPartition with InputSplit
 
 /**
  * An RDD that scans a list of file partitions.

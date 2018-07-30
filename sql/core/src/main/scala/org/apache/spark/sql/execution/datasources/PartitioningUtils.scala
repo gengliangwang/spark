@@ -548,7 +548,7 @@ object PartitioningUtils {
     }
   }
 
-  private def columnNameEquality(caseSensitive: Boolean): (String, String) => Boolean = {
+  def columnNameEquality(caseSensitive: Boolean): (String, String) => Boolean = {
     if (caseSensitive) {
       org.apache.spark.sql.catalyst.analysis.caseSensitiveResolution
     } else {

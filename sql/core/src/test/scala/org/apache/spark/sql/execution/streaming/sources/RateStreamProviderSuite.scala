@@ -24,6 +24,7 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.sql.{AnalysisException, Row}
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.datasources.DataSource
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.continuous._
@@ -146,10 +147,11 @@ class RateSourceSuite extends StreamTest {
       val startOffset = LongOffset(0L)
       val endOffset = LongOffset(1L)
       reader.setOffsetRange(Optional.of(startOffset), Optional.of(endOffset))
-      val tasks = reader.planInputPartitions()
-      assert(tasks.size == 1)
-      val dataReader = tasks.get(0).createPartitionReader()
-      val data = ArrayBuffer[Row]()
+      val metadata = reader.getMetadata()
+      val splits = reader.getSplitManager(metadata).getSplits
+      assert(splits.size == 1)
+      val dataReader = reader.getReaderProvider(metadata).createRowReader(splits(0))
+      val data = ArrayBuffer[InternalRow]()
       while (dataReader.next()) {
         data.append(dataReader.get())
       }
@@ -165,13 +167,14 @@ class RateSourceSuite extends StreamTest {
       val startOffset = LongOffset(0L)
       val endOffset = LongOffset(1L)
       reader.setOffsetRange(Optional.of(startOffset), Optional.of(endOffset))
-      val tasks = reader.planInputPartitions()
-      assert(tasks.size == 11)
+      val metadata = reader.getMetadata()
+      val splits = reader.getSplitManager(metadata).getSplits
+      assert(splits.size == 11)
 
-      val readData = tasks.asScala
-        .map(_.createPartitionReader())
+      val readData = splits
+        .map(reader.getReaderProvider(metadata).createRowReader(_))
         .flatMap { reader =>
-          val buf = scala.collection.mutable.ListBuffer[Row]()
+          val buf = scala.collection.mutable.ListBuffer[InternalRow]()
           while (reader.next()) buf.append(reader.get())
           buf
         }

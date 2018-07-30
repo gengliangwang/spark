@@ -27,23 +27,6 @@ import org.apache.spark.sql.execution.datasources.{FilePartition, FilePartitionU
 import org.apache.spark.sql.sources.v2.reader.{InputPartition, InputPartitionReader}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
-case class FileInputPartition[T](
-    file: FilePartition,
-    readFunction: (PartitionedFile) => InputPartitionReader[T],
-    ignoreCorruptFiles: Boolean = false,
-    ignoreMissingFiles: Boolean = false)
-  extends InputPartition[T] {
-  override def createPartitionReader(): InputPartitionReader[T] = {
-    val taskContext = TaskContext.get()
-    val iter = file.files.iterator.map(f => PartitionedFileReader(f, readFunction(f)))
-    FileInputPartitionReader(taskContext, iter, ignoreCorruptFiles, ignoreMissingFiles)
-  }
-
-  override def preferredLocations(): Array[String] = {
-    FilePartitionUtil.getPreferredLocations(file)
-  }
-}
-
 case class PartitionedFileReader[T](
     file: PartitionedFile,
     reader: InputPartitionReader[T]) extends InputPartitionReader[T] {

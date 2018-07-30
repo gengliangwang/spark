@@ -29,7 +29,7 @@ import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.planning.PhysicalOperation
 import org.apache.spark.sql.execution.datasources.{DataSourceStrategy, HadoopFsRelation, LogicalRelation}
-import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
+import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, FileSourceMetaData}
 import org.apache.spark.sql.execution.datasources.v2.orc.OrcDataSourceV2
 import org.apache.spark.sql.sources.v2.{DataSourceOptions, ReadSupport, ReadSupportWithSchema}
 import org.apache.spark.sql.sources.v2.reader.{DataSourceReader, SupportsPushDownCatalystFilters}
@@ -54,27 +54,27 @@ class OrcFilterSuite extends OrcTest with SharedSQLContext {
       .select(output.map(e => Column(e)): _*)
       .where(Column(predicate))
 
-    var maybeDataReader: Option[DataSourceReader] = None
+    var metadata: FileSourceMetaData = null
     val maybeAnalyzedPredicate = query.queryExecution.optimizedPlan.collect {
       case PhysicalOperation(_, filters,
-        DataSourceV2Relation(orcRelation: OrcDataSourceV2, options, _, _, userSpecifiedSchema)) =>
+        DataSourceV2Relation(orcRelation: OrcDataSourceV2, _, options, userSpecifiedSchema, _)) =>
         val dataSourceOptions = new DataSourceOptions(options.asJava)
         val dataReader = if (userSpecifiedSchema.isDefined) {
-          orcRelation.asInstanceOf[ReadSupportWithSchema]
-            .createReader(userSpecifiedSchema.get, dataSourceOptions)
+          orcRelation.createReader(userSpecifiedSchema.get, dataSourceOptions)
         } else {
-          orcRelation.asInstanceOf[ReadSupport].createReader(dataSourceOptions)
+          orcRelation.createReader(dataSourceOptions)
         }
-        maybeDataReader = Some(dataReader)
+        metadata = dataReader.getMetadata
         filters
     }.flatten.reduceLeftOption(_ && _)
-    assert(maybeAnalyzedPredicate.isDefined, "No filter is analyzed from the given query")
+    assert(maybeAnalyzedPredicate.isDefined && metadata != null,
+      "No filter is analyzed from the given query")
 
-    val pushDownCatalystFiltersReader =
-      maybeDataReader.get.asInstanceOf[SupportsPushDownCatalystFilters]
-    pushDownCatalystFiltersReader.pushCatalystFilters(Array(maybeAnalyzedPredicate.get))
+    val pushDownCatalystFiltersMetadata =
+      metadata.asInstanceOf[SupportsPushDownCatalystFilters]
+    pushDownCatalystFiltersMetadata.pushCatalystFilters(Array(maybeAnalyzedPredicate.get))
     val selectedCatalystFilters =
-      pushDownCatalystFiltersReader.pushedCatalystFilters()
+      pushDownCatalystFiltersMetadata.pushedCatalystFilters()
     assert(selectedCatalystFilters.nonEmpty, "No filter is pushed down")
 
     val selectedFilters = selectedCatalystFilters.flatMap(DataSourceStrategy.translateFilter)
@@ -110,28 +110,27 @@ class OrcFilterSuite extends OrcTest with SharedSQLContext {
       .select(output.map(e => Column(e)): _*)
       .where(Column(predicate))
 
-    var maybeDataReader: Option[DataSourceReader] = None
+    var metadata: FileSourceMetaData = null
     val maybeAnalyzedPredicate = query.queryExecution.optimizedPlan.collect {
       case PhysicalOperation(_, filters,
-      DataSourceV2Relation(orcRelation: OrcDataSourceV2, options, _, _, userSpecifiedSchema)) =>
+      DataSourceV2Relation(orcRelation: OrcDataSourceV2, _, options, userSpecifiedSchema, _)) =>
         val dataSourceOptions = new DataSourceOptions(options.asJava)
         val dataReader = if (userSpecifiedSchema.isDefined) {
-          orcRelation.asInstanceOf[ReadSupportWithSchema]
-            .createReader(userSpecifiedSchema.get, dataSourceOptions)
+          orcRelation.createReader(userSpecifiedSchema.get, dataSourceOptions)
         } else {
-          orcRelation.asInstanceOf[ReadSupport].createReader(dataSourceOptions)
+          orcRelation.createReader(dataSourceOptions)
         }
-        maybeDataReader = Some(dataReader)
+        metadata = dataReader.getMetadata
         filters
     }.flatten.reduceLeftOption(_ && _)
-    assert(maybeAnalyzedPredicate.isDefined, "No filter is analyzed from the given query")
+    assert(maybeAnalyzedPredicate.isDefined && metadata != null,
+      "No filter is analyzed from the given query")
 
-    val pushDownCatalystFiltersReader =
-      maybeDataReader.get.asInstanceOf[SupportsPushDownCatalystFilters]
-    pushDownCatalystFiltersReader.pushCatalystFilters(Array(maybeAnalyzedPredicate.get))
+    val pushDownCatalystFiltersMetadata =
+      metadata.asInstanceOf[SupportsPushDownCatalystFilters]
+    pushDownCatalystFiltersMetadata.pushCatalystFilters(Array(maybeAnalyzedPredicate.get))
     val selectedCatalystFilters =
-      pushDownCatalystFiltersReader.pushedCatalystFilters()
-    assert(selectedCatalystFilters.nonEmpty, "No filter is pushed down")
+      pushDownCatalystFiltersMetadata.pushedCatalystFilters()
 
     val selectedFilters = selectedCatalystFilters.flatMap(DataSourceStrategy.translateFilter)
     val maybeFilter = OrcFilters.createFilter(query.schema, selectedFilters)
