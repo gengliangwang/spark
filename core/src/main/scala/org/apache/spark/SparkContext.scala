@@ -502,8 +502,8 @@ class SparkContext(config: SparkConf) extends Logging {
     _heartbeatReceiver.ask[Boolean](TaskSchedulerIsSet)
 
     // create and start the heartbeater for collecting memory metrics
-    _heartbeater = new Heartbeater(env.memoryManager, reportHeartBeat, "driver-heartbeater",
-      conf.get(EXECUTOR_HEARTBEAT_INTERVAL))
+    _heartbeater = new Heartbeater(env.memoryManager, () => this.reportHeartBeat(),
+      "driver-heartbeater", conf.get(EXECUTOR_HEARTBEAT_INTERVAL))
     _heartbeater.start()
 
     // start TaskScheduler after taskScheduler sets DAGScheduler reference in DAGScheduler's
