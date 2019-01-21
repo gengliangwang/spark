@@ -85,6 +85,9 @@ abstract class FileWriteBuilder(options: DataSourceOptions)
     lazy val metrics: Map[String, SQLMetric] = BasicWriteJobStatsTracker.metrics
     val serializableHadoopConf = new SerializableConfiguration(hadoopConf)
     val statsTracker = new BasicWriteJobStatsTracker(serializableHadoopConf, metrics)
+    // TODO: after partitioning is supported in V2:
+    //       1. filter out partition columns in `dataColumns`.
+    //       2. Don't use Seq.empty for `partitionColumns`.
     val description = new WriteJobDescription(
       uuid = UUID.randomUUID().toString,
       serializableHadoopConf = new SerializableConfiguration(job.getConfiguration),
@@ -111,7 +114,7 @@ abstract class FileWriteBuilder(options: DataSourceOptions)
         null
 
       case SaveMode.Overwrite =>
-        fs.delete(path, true)
+        committer.deleteWithJob(fs, path, true)
         committer.setupJob(job)
         new FileBatchWriter(job, description, committer)
 
