@@ -46,7 +46,6 @@ class OrcWriteBuilder(options: DataSourceOptions) extends FileWriteBuilder(optio
     conf.asInstanceOf[JobConf]
       .setOutputFormat(classOf[org.apache.orc.mapred.OrcOutputFormat[OrcStruct]])
 
-    println("v2 write...")
     new OutputWriterFactory {
       override def newInstance(
           path: String,

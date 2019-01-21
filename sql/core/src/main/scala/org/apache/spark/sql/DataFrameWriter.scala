@@ -244,7 +244,10 @@ final class DataFrameWriter[T] private[sql](ds: Dataset[T]) {
 
     val session = df.sparkSession
     val cls = DataSource.lookupDataSource(source, session.sessionState.conf)
-    if (classOf[TableProvider].isAssignableFrom(cls)) {
+    // SPARK-26673: In Data Source V2 project, partitioning is still under development.
+    //              Here we fallback to V1 if the write path if output partitioning is required.
+    // TODO: use V2 implementations when partitioning feature is supported.
+    if (classOf[TableProvider].isAssignableFrom(cls) && partitioningColumns.isEmpty) {
       val provider = cls.getConstructor().newInstance().asInstanceOf[TableProvider]
       val sessionOptions = DataSourceV2Utils.extractSessionConfigs(
         provider, session.sessionState.conf)

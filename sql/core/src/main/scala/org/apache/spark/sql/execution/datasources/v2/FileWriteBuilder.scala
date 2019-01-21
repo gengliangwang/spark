@@ -75,7 +75,7 @@ abstract class FileWriteBuilder(options: DataSourceOptions)
 
     job.setOutputKeyClass(classOf[Void])
     job.setOutputValueClass(classOf[InternalRow])
-    FileOutputFormat.setOutputPath(job, new Path(pathName))
+    FileOutputFormat.setOutputPath(job, path)
 
     val caseInsensitiveOptions = CaseInsensitiveMap(optionsAsScala)
     // Note: prepareWrite has side effect. It sets "job".
@@ -113,12 +113,11 @@ abstract class FileWriteBuilder(options: DataSourceOptions)
       case SaveMode.Overwrite =>
         fs.delete(path, true)
         committer.setupJob(job)
-        new FileSourceWriter(job, description, committer)
+        new FileBatchWriter(job, description, committer)
 
       case _ =>
         committer.setupJob(job)
-        new FileSourceWriter(job, description, committer)
-
+        new FileBatchWriter(job, description, committer)
     }
   }
 

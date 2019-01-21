@@ -18,37 +18,16 @@ package org.apache.spark.sql.execution.datasources.v2
 
 import java.util.Date
 
-import org.apache.hadoop.mapreduce.{Job, TaskAttemptID, TaskID, TaskType}
+import org.apache.hadoop.mapreduce.{TaskAttemptID, TaskID, TaskType}
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 
 import org.apache.spark.internal.io.{FileCommitProtocol, SparkHadoopWriterUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.{DynamicPartitionDataWriter, SingleDirectoryDataWriter, WriteJobDescription, WriteTaskResult}
-import org.apache.spark.sql.sources.v2.writer._
+import org.apache.spark.sql.execution.datasources.{DynamicPartitionDataWriter, SingleDirectoryDataWriter, WriteJobDescription}
+import org.apache.spark.sql.sources.v2.writer.{DataWriter, DataWriterFactory}
 import org.apache.spark.util.SerializableConfiguration
 
-class FileSourceWriter(
-    job: Job,
-    description: WriteJobDescription,
-    committer: FileCommitProtocol)
-  extends BatchWrite {
-  override def commit(messages: Array[WriterCommitMessage]): Unit = {
-    committer.commitJob(job, messages.map(_.asInstanceOf[WriteTaskResult].commitMsg))
-  }
-
-  override def useCommitCoordinator(): Boolean = false
-
-  override def abort(messages: Array[WriterCommitMessage]): Unit = {
-    committer.abortJob(job)
-  }
-
-  override def createBatchWriterFactory(): DataWriterFactory = {
-    val conf = new SerializableConfiguration(job.getConfiguration)
-    FileDataWriterFactory(description, committer, conf)
-  }
-}
-
-case class FileDataWriterFactory (
+case class FileWriterFactory (
     description: WriteJobDescription,
     committer: FileCommitProtocol,
     conf: SerializableConfiguration) extends DataWriterFactory {
