@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution.datasources.v2
 
 import org.apache.spark.sql.sources.v2.reader.{ScanBuilder, SupportsPushDownFilters, SupportsPushDownRequiredColumns}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataType, StructType}
 
 abstract class FileScanBuilder(schema: StructType)
   extends ScanBuilder
@@ -28,4 +28,10 @@ abstract class FileScanBuilder(schema: StructType)
   override def pruneColumns(requiredSchema: StructType): Unit = {
     this.readSchema = requiredSchema
   }
+
+  /**
+   * Returns whether this format supports the given [[DataType]] in write path.
+   * By default all data types are supported.
+   */
+  def supportDataType(dataType: DataType): Boolean = true
 }

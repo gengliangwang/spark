@@ -331,7 +331,7 @@ class FileBasedDataSourceSuite extends QueryTest with SharedSQLContext with Befo
       val tempDir = new File(dir, "files").getCanonicalPath
 
       // write path
-      Seq("csv", "json", "parquet", "orc").foreach { format =>
+      Seq("csv", "json", "parquet").foreach { format =>
         var msg = intercept[AnalysisException] {
           sql("select interval 1 days").write.format(format).mode("overwrite").save(tempDir)
         }.getMessage
@@ -343,6 +343,21 @@ class FileBasedDataSourceSuite extends QueryTest with SharedSQLContext with Befo
         }.getMessage
         assert(msg.toLowerCase(Locale.ROOT)
           .contains(s"$format data source does not support calendarinterval data type."))
+      }
+
+      Seq("orc").foreach { format =>
+        var msg = intercept[AnalysisException] {
+          sql("select interval 1 days").write.format(format).mode("overwrite").save(tempDir)
+        }.getMessage
+        assert(msg.toLowerCase(Locale.ROOT)
+          .contains("data source does not support calendarinterval data type."))
+
+        msg = intercept[AnalysisException] {
+          spark.udf.register("testType", () => new IntervalData())
+          sql("select testType()").write.format(format).mode("overwrite").save(tempDir)
+        }.getMessage
+        assert(msg.toLowerCase(Locale.ROOT)
+          .contains(s"data source does not support calendarinterval data type."))
       }
 
       // read path
@@ -376,14 +391,14 @@ class FileBasedDataSourceSuite extends QueryTest with SharedSQLContext with Befo
           sql("select null").write.format(format).mode("overwrite").save(tempDir)
         }.getMessage
         assert(msg.toLowerCase(Locale.ROOT)
-          .contains(s"$format data source does not support null data type."))
+          .contains(s"data source does not support null data type."))
 
         msg = intercept[AnalysisException] {
           spark.udf.register("testType", () => new NullData())
           sql("select testType()").write.format(format).mode("overwrite").save(tempDir)
         }.getMessage
         assert(msg.toLowerCase(Locale.ROOT)
-          .contains(s"$format data source does not support null data type."))
+          .contains(s"data source does not support null data type."))
 
         // read path
         // We expect the types below should be passed for backward-compatibility

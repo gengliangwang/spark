@@ -26,8 +26,7 @@ import org.apache.spark.sql.execution.datasources.orc.{OrcFileFormat, OrcOptions
 import org.apache.spark.sql.execution.datasources.v2.FileWriteBuilder
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.v2.DataSourceOptions
-import org.apache.spark.sql.sources.v2.writer.{BatchWrite, WriteBuilder}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types._
 
 class OrcWriteBuilder(options: DataSourceOptions) extends FileWriteBuilder(options) {
   override def prepareWrite(
@@ -64,4 +63,20 @@ class OrcWriteBuilder(options: DataSourceOptions) extends FileWriteBuilder(optio
       }
     }
   }
+
+  override def supportDataType(dataType: DataType): Boolean = dataType match {
+    case _: AtomicType => true
+
+    case st: StructType => st.forall { f => supportDataType(f.dataType) }
+
+    case ArrayType(elementType, _) => supportDataType(elementType)
+
+    case MapType(keyType, valueType, _) =>
+      supportDataType(keyType) && supportDataType(valueType)
+
+    case udt: UserDefinedType[_] => supportDataType(udt.sqlType)
+
+    case _ => false
+  }
+
 }

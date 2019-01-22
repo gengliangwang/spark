@@ -23,7 +23,7 @@ import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 
 import org.apache.spark.internal.io.{FileCommitProtocol, SparkHadoopWriterUtils}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.execution.datasources.{DynamicPartitionDataWriter, SingleDirectoryDataWriter, WriteJobDescription}
+import org.apache.spark.sql.execution.datasources.{DynamicPartitionDataWriter, EmptyDirectoryDataWriter, SingleDirectoryDataWriter, WriteJobDescription}
 import org.apache.spark.sql.sources.v2.writer.{DataWriter, DataWriterFactory}
 import org.apache.spark.util.SerializableConfiguration
 
@@ -32,25 +32,32 @@ case class FileWriterFactory (
     committer: FileCommitProtocol,
     conf: SerializableConfiguration) extends DataWriterFactory {
   override def createWriter(partitionId: Int, realTaskId: Long): DataWriter[InternalRow] = {
-    val jobId = SparkHadoopWriterUtils.createJobID(new Date, 0)
-    val taskId = new TaskID(jobId, TaskType.MAP, partitionId)
-    val taskAttemptId = new TaskAttemptID(taskId, 0)
-    val taskAttemptContext: TaskAttemptContextImpl = {
-      // Set up the configuration object
-      val hadoopConf = conf.value
-      hadoopConf.set("mapreduce.job.id", jobId.toString)
-      hadoopConf.set("mapreduce.task.id", taskId.toString)
-      hadoopConf.set("mapreduce.task.attempt.id", taskAttemptId.toString)
-      hadoopConf.setBoolean("mapreduce.task.ismap", true)
-      hadoopConf.setInt("mapreduce.task.partition", 0)
-
-      new TaskAttemptContextImpl(hadoopConf, taskAttemptId)
-    }
+    val taskAttemptContext = createTaskAttemptContext(partitionId)
     committer.setupTask(taskAttemptContext)
     if (description.partitionColumns.isEmpty) {
       new SingleDirectoryDataWriter(description, taskAttemptContext, committer)
     } else {
       new DynamicPartitionDataWriter(description, taskAttemptContext, committer)
     }
+  }
+
+  def createEmptyWriter(partitionId: Int): DataWriter[InternalRow] = {
+    val taskAttemptContext = createTaskAttemptContext(partitionId)
+    new EmptyDirectoryDataWriter(description, taskAttemptContext, committer)
+  }
+
+  private def createTaskAttemptContext(partitionId: Int): TaskAttemptContextImpl = {
+    val jobId = SparkHadoopWriterUtils.createJobID(new Date, 0)
+    val taskId = new TaskID(jobId, TaskType.MAP, partitionId)
+    val taskAttemptId = new TaskAttemptID(taskId, 0)
+    // Set up the configuration object
+    val hadoopConf = conf.value
+    hadoopConf.set("mapreduce.job.id", jobId.toString)
+    hadoopConf.set("mapreduce.task.id", taskId.toString)
+    hadoopConf.set("mapreduce.task.attempt.id", taskAttemptId.toString)
+    hadoopConf.setBoolean("mapreduce.task.ismap", true)
+    hadoopConf.setInt("mapreduce.task.partition", 0)
+
+    new TaskAttemptContextImpl(hadoopConf, taskAttemptId)
   }
 }

@@ -23,7 +23,7 @@ import org.apache.spark.sql.execution.datasources.{WriteJobDescription, WriteTas
 import org.apache.spark.sql.sources.v2.writer._
 import org.apache.spark.util.SerializableConfiguration
 
-class FileBatchWriter(
+class FileBatchWrite(
     job: Job,
     description: WriteJobDescription,
     committer: FileCommitProtocol)

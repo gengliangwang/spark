@@ -28,7 +28,7 @@ import org.apache.spark.sql.execution.datasources.v2.FileScanBuilder
 import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.sources.v2.DataSourceOptions
 import org.apache.spark.sql.sources.v2.reader.Scan
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types._
 
 case class OrcScanBuilder(
     sparkSession: SparkSession,
@@ -59,4 +59,21 @@ case class OrcScanBuilder(
   }
 
   override def pushedFilters(): Array[Filter] = _pushedFilters
+
+  override def supportDataType(dataType: DataType): Boolean = dataType match {
+    case _: AtomicType => true
+
+    case st: StructType => st.forall { f => supportDataType(f.dataType) }
+
+    case ArrayType(elementType, _) => supportDataType(elementType)
+
+    case MapType(keyType, valueType, _) =>
+      supportDataType(keyType) && supportDataType(valueType)
+
+    case udt: UserDefinedType[_] => supportDataType(udt.sqlType)
+
+    case _: NullType => true
+
+    case _ => false
+  }
 }

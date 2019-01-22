@@ -25,15 +25,15 @@ import org.apache.hadoop.mapreduce.Job
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat
 
 import org.apache.spark.internal.io.{FileCommitProtocol, HadoopMapReduceCommitProtocol}
-import org.apache.spark.sql.{SaveMode, SparkSession}
+import org.apache.spark.sql.{AnalysisException, SaveMode, SparkSession}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.util.{CaseInsensitiveMap, DateTimeUtils}
-import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, OutputWriterFactory, WriteJobDescription}
+import org.apache.spark.sql.execution.datasources.{BasicWriteJobStatsTracker, DataSource, OutputWriterFactory, WriteJobDescription}
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.v2.{DataSourceOptions, SupportsBatchWrite}
 import org.apache.spark.sql.sources.v2.writer.{BatchWrite, SupportsSaveMode, WriteBuilder}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{DataType, StructType}
 import org.apache.spark.util.SerializableConfiguration
 
 abstract class FileWriteBuilder(options: DataSourceOptions)
@@ -62,6 +62,13 @@ abstract class FileWriteBuilder(options: DataSourceOptions)
     assert(queryId != null, "Missing query ID")
     assert(mode != null, "Missing save mode")
     assert(options.paths().length == 1)
+    DataSource.validateSchema(schema)
+    schema.foreach { field =>
+      if (!supportDataType(field.dataType)) {
+        throw new AnalysisException(
+          s"Data source does not support ${field.dataType.catalogString} data type.")
+      }
+    }
     val pathName = options.paths().head
     val path = new Path(pathName)
     val sparkSession = SparkSession.active
@@ -116,11 +123,11 @@ abstract class FileWriteBuilder(options: DataSourceOptions)
       case SaveMode.Overwrite =>
         committer.deleteWithJob(fs, path, true)
         committer.setupJob(job)
-        new FileBatchWriter(job, description, committer)
+        new FileBatchWrite(job, description, committer)
 
       case _ =>
         committer.setupJob(job)
-        new FileBatchWriter(job, description, committer)
+        new FileBatchWrite(job, description, committer)
     }
   }
 
@@ -134,5 +141,11 @@ abstract class FileWriteBuilder(options: DataSourceOptions)
       job: Job,
       options: Map[String, String],
       dataSchema: StructType): OutputWriterFactory
+
+  /**
+   * Returns whether this format supports the given [[DataType]] in write path.
+   * By default all data types are supported.
+   */
+  def supportDataType(dataType: DataType): Boolean = true
 }
 
