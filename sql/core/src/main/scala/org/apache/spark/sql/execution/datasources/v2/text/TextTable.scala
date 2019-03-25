@@ -21,7 +21,7 @@ import org.apache.hadoop.fs.FileStatus
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.execution.datasources.v2.FileTable
 import org.apache.spark.sql.sources.v2.writer.WriteBuilder
-import org.apache.spark.sql.types.{StringType, StructType}
+import org.apache.spark.sql.types.{DataType, StringType, StructType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 case class TextTable(
@@ -38,5 +38,9 @@ case class TextTable(
     Some(new StructType().add("value", StringType))
 
   override def newWriteBuilder(options: CaseInsensitiveStringMap): WriteBuilder =
-    new TextWriteBuilder(options, paths)
+    new TextWriteBuilder(options, paths, formatName, supportsDataType)
+
+  override def supportsDataType(dataType: DataType): Boolean = dataType == StringType
+
+  override def formatName: String = "Text"
 }

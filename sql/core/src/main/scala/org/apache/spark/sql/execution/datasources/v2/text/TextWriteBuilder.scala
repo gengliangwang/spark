@@ -27,8 +27,12 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
-class TextWriteBuilder(options: CaseInsensitiveStringMap, paths: Seq[String])
-  extends FileWriteBuilder(options, paths) {
+class TextWriteBuilder(
+    options: CaseInsensitiveStringMap,
+    paths: Seq[String],
+    formatName: String,
+    supportsDataType: DataType => Boolean)
+  extends FileWriteBuilder(options, paths, formatName, supportsDataType) {
   private def verifySchema(schema: StructType): Unit = {
     if (schema.size != 1) {
       throw new AnalysisException(
@@ -63,10 +67,4 @@ class TextWriteBuilder(options: CaseInsensitiveStringMap, paths: Seq[String])
       }
     }
   }
-
-  override def supportsDataType(dataType: DataType): Boolean = {
-    TextDataSourceV2.supportsDataType(dataType)
-  }
-
-  override def formatName: String = "Text"
 }

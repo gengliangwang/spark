@@ -42,7 +42,3 @@ class TextDataSourceV2 extends FileDataSourceV2 {
   }
 }
 
-object TextDataSourceV2 {
-  def supportsDataType(dataType: DataType): Boolean =
-    dataType == StringType
-}

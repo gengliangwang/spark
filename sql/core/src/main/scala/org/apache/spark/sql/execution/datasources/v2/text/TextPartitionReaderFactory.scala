@@ -49,6 +49,10 @@ case class TextPartitionReaderFactory(
   private val readDataSchema =
     getReadDataSchema(readSchema, partitionSchema, sqlConf.caseSensitiveAnalysis)
 
+  assert(
+    readDataSchema.length <= 1,
+    "Text data source only produces a single data column named \"value\".")
+
   override def buildReader(file: PartitionedFile): PartitionReader[InternalRow] = {
     val confValue = broadcastedConf.value.value
     val reader = if (!textOptions.wholeText) {

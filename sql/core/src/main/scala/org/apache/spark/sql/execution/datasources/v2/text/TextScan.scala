@@ -45,11 +45,6 @@ case class TextScan(
   }
 
   override def createReaderFactory(): PartitionReaderFactory = {
-    // TODO: readDataSchema?
-    assert(
-      readSchema.length <= 1,
-      "Text data source only produces a single data column named \"value\".")
-
     val hadoopConf = {
       val caseSensitiveMap = options.asCaseSensitiveMap.asScala.toMap
       // Hadoop Configurations are case sensitive.
@@ -60,10 +55,4 @@ case class TextScan(
     TextPartitionReaderFactory(sparkSession.sessionState.conf, broadcastedConf,
       dataSchema, fileIndex.partitionSchema, readSchema, textOptions)
   }
-
-  override def supportsDataType(dataType: DataType): Boolean = {
-    TextDataSourceV2.supportsDataType(dataType)
-  }
-
-  override def formatName: String = "Text"
 }
