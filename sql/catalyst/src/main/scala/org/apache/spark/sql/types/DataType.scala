@@ -371,12 +371,14 @@ object DataType {
       byName: Boolean,
       resolver: Resolver,
       context: String,
-      addError: String => Unit): Boolean = {
+      addError: String => Unit,
+      canWriteBasicType: (DataType, DataType) => Boolean): Boolean = {
     (write, read) match {
       case (wArr: ArrayType, rArr: ArrayType) =>
         // run compatibility check first to produce all error messages
         val typesCompatible = canWrite(
-          wArr.elementType, rArr.elementType, byName, resolver, context + ".element", addError)
+          wArr.elementType, rArr.elementType, byName, resolver,
+          context + ".element", addError, canWriteBasicType)
 
         if (wArr.containsNull && !rArr.containsNull) {
           addError(s"Cannot write nullable elements to array of non-nulls: '$context'")
@@ -391,9 +393,11 @@ object DataType {
 
         // run compatibility check first to produce all error messages
         val keyCompatible = canWrite(
-          wMap.keyType, rMap.keyType, byName, resolver, context + ".key", addError)
+          wMap.keyType, rMap.keyType, byName, resolver, context + ".key",
+          addError, canWriteBasicType)
         val valueCompatible = canWrite(
-          wMap.valueType, rMap.valueType, byName, resolver, context + ".value", addError)
+          wMap.valueType, rMap.valueType, byName, resolver, context + ".value",
+          addError, canWriteBasicType)
 
         if (wMap.valueContainsNull && !rMap.valueContainsNull) {
           addError(s"Cannot write nullable values to map of non-nulls: '$context'")
@@ -409,7 +413,8 @@ object DataType {
             val nameMatch = resolver(wField.name, rField.name) || isSparkGeneratedName(wField.name)
             val fieldContext = s"$context.${rField.name}"
             val typesCompatible = canWrite(
-              wField.dataType, rField.dataType, byName, resolver, fieldContext, addError)
+              wField.dataType, rField.dataType, byName, resolver, fieldContext,
+              addError, canWriteBasicType)
 
             if (byName && !nameMatch) {
               addError(s"Struct '$context' $i-th field name does not match " +
@@ -441,6 +446,18 @@ object DataType {
 
         fieldCompatible
 
+      case _ => canWriteBasicType(write, read)
+    }
+  }
+
+  def canSafeWrite(
+      write: DataType,
+      read: DataType,
+      byName: Boolean,
+      resolver: Resolver,
+      context: String,
+      addError: String => Unit): Boolean = {
+    def canWriteBasicType(write: DataType, read: DataType): Boolean = (write, read) match {
       case (w: AtomicType, r: AtomicType) =>
         if (!Cast.canUpCast(w, r)) {
           addError(s"Cannot safely cast '$context': $w to $r")
@@ -456,5 +473,25 @@ object DataType {
         addError(s"Cannot write '$context': $w is incompatible with $r")
         false
     }
+
+    canWrite(write, read, byName, resolver, context, addError, canWriteBasicType)
+  }
+
+  def canWriteDecimal(
+      write: DataType,
+      read: DataType,
+      byName: Boolean,
+      resolver: Resolver,
+      context: String,
+      addError: String => Unit): Boolean = {
+    def canWriteBasicType(write: DataType, read: DataType): Boolean = (write, read) match {
+      case (w: DecimalType, r: DoubleType) if w.isTighterThan(DecimalType.forType(r)) => true
+
+      case (w: DecimalType, r: FloatType) if w.isTighterThan(DecimalType.forType(r)) => true
+
+      case _ => false
+    }
+
+    canWrite(write, read, byName, resolver, context, addError, canWriteBasicType)
   }
 }

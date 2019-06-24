@@ -253,6 +253,30 @@ abstract class DataSourceV2AnalysisSuite extends AnalysisTest {
       "Cannot safely cast", "'x'", "'y'", "DoubleType to FloatType"))
   }
 
+  test("byName: allow writing tighter decimal type from LocalRelation into double/float column") {
+    val query = TestRelation(StructType(Seq(
+      StructField("x", DecimalType(3, 1)),
+      StructField("y", DecimalType(5, 2)))).toAttributes)
+
+    val parsedPlan = byName(table, query)
+    assertNotResolved(parsedPlan)
+    assertAnalysisError(parsedPlan, Seq(
+      "Cannot write", "'table-name'",
+      "Cannot safely cast", "'x'", "'y'", "DecimalType(3,1) to FloatType"))
+
+    val parsedPlan2 = byName(widerTable, query)
+    assertNotResolved(parsedPlan2)
+    assertAnalysisError(parsedPlan2, Seq(
+      "Cannot write", "'table-name'",
+      "Cannot safely cast", "'x'", "'y'", "DecimalType(3,1) to DoubleType"))
+
+    val query2 = LocalRelation(StructType(Seq(
+      StructField("x", DecimalType(3, 1)),
+      StructField("y", DecimalType(5, 2)))).toAttributes)
+    // assertResolved(byName(table, query2))
+    assertResolved(byName(widerTable, query2))
+  }
+
   test("byName: insert safe cast") {
     val x = table.output.head
     val y = table.output.last
