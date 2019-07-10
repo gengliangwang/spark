@@ -23,7 +23,7 @@ import scala.collection.JavaConverters._
 import org.apache.hadoop.fs.{FileStatus, Path}
 
 import org.apache.spark.sql.{AnalysisException, SparkSession}
-import org.apache.spark.sql.catalog.v2.expressions.Transform
+import org.apache.spark.sql.catalog.v2.expressions.{LogicalExpressions, Transform}
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.streaming.{FileStreamSink, MetadataLogFileIndex}
 import org.apache.spark.sql.sources.v2.{SupportsRead, SupportsWrite, Table, TableCapability}
@@ -78,31 +78,43 @@ abstract class FileTable(
   }
 
   override lazy val schema: StructType = {
-    val caseSensitive = sparkSession.sessionState.conf.caseSensitiveAnalysis
-    SchemaUtils.checkColumnNameDuplication(dataSchema.fieldNames,
-      "in the data schema", caseSensitive)
-    dataSchema.foreach { field =>
-      if (!supportsDataType(field.dataType)) {
-        throw new AnalysisException(
-          s"$formatName data source does not support ${field.dataType.catalogString} data type.")
+    if (options.containsKey(DataSourceUtils.SCHEMA_KEY)) {
+      StructType.fromDDL(options.get(DataSourceUtils.SCHEMA_KEY))
+    } else {
+      val caseSensitive = sparkSession.sessionState.conf.caseSensitiveAnalysis
+      SchemaUtils.checkColumnNameDuplication(dataSchema.fieldNames,
+        "in the data schema", caseSensitive)
+      dataSchema.foreach { field =>
+        if (!supportsDataType(field.dataType)) {
+          throw new AnalysisException(
+            s"$formatName data source does not support ${field.dataType.catalogString} data type.")
+        }
       }
-    }
-    val partitionSchema = fileIndex.partitionSchema
-    SchemaUtils.checkColumnNameDuplication(partitionSchema.fieldNames,
-      "in the partition schema", caseSensitive)
-    val partitionNameSet: Set[String] =
-      partitionSchema.fields.map(PartitioningUtils.getColName(_, caseSensitive)).toSet
+      val partitionSchema = fileIndex.partitionSchema
+      SchemaUtils.checkColumnNameDuplication(partitionSchema.fieldNames,
+        "in the partition schema", caseSensitive)
+      val partitionNameSet: Set[String] =
+        partitionSchema.fields.map(PartitioningUtils.getColName(_, caseSensitive)).toSet
 
-    // When data and partition schemas have overlapping columns,
-    // tableSchema = dataSchema - overlapSchema + partitionSchema
-    val fields = dataSchema.fields.filterNot { field =>
-      val colName = PartitioningUtils.getColName(field, caseSensitive)
-      partitionNameSet.contains(colName)
-    } ++ partitionSchema.fields
-    StructType(fields)
+      // When data and partition schemas have overlapping columns,
+      // tableSchema = dataSchema - overlapSchema + partitionSchema
+      val fields = dataSchema.fields.filterNot { field =>
+        val colName = PartitioningUtils.getColName(field, caseSensitive)
+        partitionNameSet.contains(colName)
+      } ++ partitionSchema.fields
+      StructType(fields)
+    }
   }
 
-  override def partitioning: Array[Transform] = fileIndex.partitionSchema.asTransforms
+  override def partitioning: Array[Transform] =
+    if (options.containsKey(DataSourceUtils.PARTITIONING_COLUMNS_KEY)) {
+      val partitionColumnNames =
+        DataSourceUtils.decodePartitioningColumns(
+          options.get(DataSourceUtils.PARTITIONING_COLUMNS_KEY))
+      partitionColumnNames.map(LogicalExpressions.identity).toArray
+    } else {
+      fileIndex.partitionSchema.asTransforms
+    }
 
   override def properties: util.Map[String, String] = options.asCaseSensitiveMap
 
@@ -142,5 +154,5 @@ abstract class FileTable(
 }
 
 object FileTable {
-  private val CAPABILITIES = Set(BATCH_READ, BATCH_WRITE, TRUNCATE).asJava
+  private val CAPABILITIES = Set(BATCH_READ, BATCH_WRITE, TRUNCATE, ACCEPT_ANY_SCHEMA).asJava
 }

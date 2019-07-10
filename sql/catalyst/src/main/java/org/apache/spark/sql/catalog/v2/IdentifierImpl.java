@@ -29,12 +29,12 @@ import java.util.stream.Stream;
  *  An {@link Identifier} implementation.
  */
 @Experimental
-class IdentifierImpl implements Identifier {
+public class IdentifierImpl implements Identifier {
 
   private String[] namespace;
   private String name;
 
-  IdentifierImpl(String[] namespace, String name) {
+  public IdentifierImpl(String[] namespace, String name) {
     Preconditions.checkNotNull(namespace, "Identifier namespace cannot be null");
     Preconditions.checkNotNull(name, "Identifier name cannot be null");
     this.namespace = namespace;

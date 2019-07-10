@@ -31,6 +31,7 @@ object DataSourceUtils {
    */
   val PARTITIONING_COLUMNS_KEY = "__partition_columns"
 
+  val SCHEMA_KEY = "__schema"
   /**
    * Utility methods for converting partitionBy columns to options and back.
    */
