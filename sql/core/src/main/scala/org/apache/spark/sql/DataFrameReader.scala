@@ -74,7 +74,6 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
    */
   def schema(schema: StructType): DataFrameReader = {
     this.userSpecifiedSchema = Option(schema)
-    this.option("schema", schema.toString)
     this
   }
 
@@ -91,7 +90,6 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
    */
   def schema(schemaString: String): DataFrameReader = {
     this.userSpecifiedSchema = Option(StructType.fromDDL(schemaString))
-    this.option("schema", schemaString)
     this
   }
 
@@ -226,7 +224,7 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
       new CaseInsensitiveStringMap((sessionOptions ++ extraOptions ++ pathsOption).asJava)
 
     val tableOptional = if (!shouldUseV1Source) {
-      if (classOf[PathCatalog].isAssignableFrom(cls) && extraOptions.contains("path")) {
+      if (classOf[PathCatalog].isAssignableFrom(cls)) {
         loadTableFromPathCatalog(cls, pathsOption)
       } else if (classOf[TableProvider].isAssignableFrom(cls)) {
         val provider = cls.getConstructor().newInstance().asInstanceOf[TableProvider]
@@ -262,7 +260,7 @@ class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
       pathsOption: Option[(String, String)]): Option[Table] = {
     val catalog = cls.getConstructor().newInstance().asInstanceOf[PathCatalog]
     catalog.initialize(source, new CaseInsensitiveStringMap((extraOptions ++ pathsOption).asJava))
-    val ident = new IdentifierImpl(Array.empty, extraOptions("path"))
+    val ident = new IdentifierImpl(Array.empty, "foo")
     Some(catalog.loadTable(ident))
   }
 
