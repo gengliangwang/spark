@@ -105,6 +105,10 @@ class ExecutionPage(parent: SQLTab) extends WebUIPage("execution") with Logging 
       val nodeId = s"plan-meta-data-${node.id}"
       <div id={nodeId}>{node.desc}</div>
     }
+    val metricsTables = graph.allNodes.flatMap { node =>
+      val nodeId = s"plan-metrics-table-${node.id}"
+      <div id={nodeId}>{node.makeMetricsTable(metrics)}</div>
+    }
 
     <div>
       <div id="plan-viz-graph"></div>
@@ -114,6 +118,7 @@ class ExecutionPage(parent: SQLTab) extends WebUIPage("execution") with Logging 
         </div>
         <div id="plan-viz-metadata-size">{graph.allNodes.size.toString}</div>
         {metadata}
+        {metricsTables}
       </div>
       {planVisualizationResources(request)}
       <script>$(function() {{ renderPlanViz(); }})</script>

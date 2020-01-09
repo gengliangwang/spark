@@ -20,10 +20,12 @@ package org.apache.spark.sql.execution.ui
 import java.util.concurrent.atomic.AtomicLong
 
 import scala.collection.mutable
+import scala.xml.Node
 
 import org.apache.commons.text.StringEscapeUtils
 
 import org.apache.spark.sql.execution.{SparkPlanInfo, WholeStageCodegenExec}
+import org.apache.spark.ui.UIUtils
 
 
 /**
@@ -160,24 +162,25 @@ private[ui] class SparkPlanGraphNode(
     val metrics: Seq[SQLPlanMetric]) {
 
   def makeDotNode(metricsValue: Map[Long, String]): String = {
-    val builder = new mutable.StringBuilder(name)
+    s"""  $id [label="$name"];"""
+  }
 
+  private def metricsRow(value: (String, String)): Seq[Node] = {
+    <tr>
+      <td>{value._1}</td>
+      <td>{value._2}</td>
+    </tr>
+  }
+
+  def makeMetricsTable(metricsValue: Map[Long, String]): Seq[Node] = {
     val values = for {
       metric <- metrics
       value <- metricsValue.get(metric.accumulatorId)
     } yield {
-      metric.name + ": " + value
+      (metric.name, value)
     }
 
-    if (values.nonEmpty) {
-      // If there are metrics, display each entry in a separate line.
-      // Note: whitespace between two "\n"s is to create an empty line between the name of
-      // SparkPlan and metrics. If removing it, it won't display the empty line in UI.
-      builder ++= "\n \n"
-      builder ++= values.mkString("\n")
-    }
-
-    s"""  $id [label="${StringEscapeUtils.escapeJava(builder.toString())}"];"""
+    UIUtils.listingTable(Seq.empty, metricsRow, values)
   }
 }
 

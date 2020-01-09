@@ -40,6 +40,7 @@ function renderPlanViz() {
   var nodeSize = parseInt($("#plan-viz-metadata-size").text());
   for (var i = 0; i < nodeSize; i++) {
     setupTooltipForSparkPlanNode(i);
+    setupMetricsTableForSparkPlanNode(i);
   }
 
   resizeSvg(svg);
@@ -52,7 +53,7 @@ function renderPlanViz() {
 function planVizContainer() { return d3.select("#plan-viz-graph"); }
 
 /*
- * Set up the tooltip for a SparkPlan node using metadata. When the user moves the mouse on the
+ * Set up the tooltip for5 a SparkPlan node using metadata. When the user moves the mouse on the
  * node, it will display the details of this SparkPlan node in the right.
  */
 function setupTooltipForSparkPlanNode(nodeId) {
@@ -69,6 +70,23 @@ function setupTooltipForSparkPlanNode(nodeId) {
       var domNode = d3.select(this).node();
       $(domNode).tooltip("destroy");
     })
+}
+
+function setupMetricsTableForSparkPlanNode(nodeId) {
+  var metricsTable = d3.select("#plan-metrics-table-" + nodeId);
+  // metricsTable.css("display", "none");
+  // d3.select("svg g .node_" + nodeId).append(
+  //     '<span style="cursor: pointer;" onclick="clickPhysicalPlanDetails();">' +
+  //     '<span id="plan-metrics-table-arrow" class="arrow-open"></span>' +
+  //     '<a>Details</a>' +
+  //     '</span>');
+  d3.select("svg g .node_" + nodeId + " label")
+      .on('click')
+}
+
+function toggleMetricsTable() {
+  this.select('#plan-metrics-table-arrow').toggleClass('arrow-open').toggleClass('arrow-closed');
+  this.parentNode.select('#plan-metrics-table-' + nodeId).toggle()
 }
 
 /*
