@@ -18,9 +18,10 @@
 package org.apache.spark.status
 
 import java.util.Date
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.{ConcurrentHashMap, ConcurrentLinkedQueue}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.collection.mutable.HashMap
 
 import org.apache.spark._
@@ -76,6 +77,7 @@ private[spark] class AppStatusListener(
   private val liveTasks = new HashMap[Long, LiveTask]()
   private val liveRDDs = new HashMap[Int, LiveRDD]()
   private val pools = new HashMap[String, SchedulerPool]()
+  private val tasksInStage = new ConcurrentHashMap[(Int, Int), ConcurrentLinkedQueue[Long]]()
 
   private val SQL_EXECUTION_ID_KEY = "spark.sql.execution.id"
   // Keep the active executor count as a separate variable to avoid having to do synchronization
@@ -505,11 +507,18 @@ private[spark] class AppStatusListener(
     liveUpdate(stage, now)
   }
 
+  private def updateStageAndTaskMapping(taskId: Long, stageId: Int, stageAttemptId: Int): Unit = {
+    val taskIds = tasksInStage.computeIfAbsent((stageId, stageAttemptId),
+      (_: (Int, Int)) => new ConcurrentLinkedQueue[Long]())
+    taskIds.add(taskId)
+  }
+
   override def onTaskStart(event: SparkListenerTaskStart): Unit = {
     val now = System.nanoTime()
     val task = new LiveTask(event.taskInfo, event.stageId, event.stageAttemptId, lastUpdateTime)
     liveTasks.put(event.taskInfo.taskId, task)
     liveUpdate(task, now)
+    updateStageAndTaskMapping(event.taskInfo.taskId, event.stageId, event.stageAttemptId)
 
     Option(liveStages.get((event.stageId, event.stageAttemptId))).foreach { stage =>
       stage.activeTasks += 1
@@ -1142,6 +1151,10 @@ private[spark] class AppStatusListener(
     val stages = KVUtils.viewToSeq(view, countToDelete.toInt) { s =>
       s.info.status != v1.StageStatus.ACTIVE && s.info.status != v1.StageStatus.PENDING
     }
+    val taskIds = stages.flatMap { s =>
+      val key = Array(s.info.stageId, s.info.attemptId)
+      tasksInStage.get(key).toArray
+    }
 
     val stageIds = stages.map { s =>
       val key = Array(s.info.stageId, s.info.attemptId)
@@ -1175,7 +1188,11 @@ private[spark] class AppStatusListener(
     kvstore.removeAllByIndexValues(classOf[ExecutorStageSummaryWrapper], "stage", stageIds)
 
     // Delete tasks for all stages in one pass, as deleting them for each stage individually is slow
-    kvstore.removeAllByIndexValues(classOf[TaskDataWrapper], TaskIndexNames.STAGE, stageIds)
+    // kvstore.removeAllByIndexValues(classOf[TaskDataWrapper], TaskIndexNames.STAGE, stageIds)
+    val taskDataCls = classOf[TaskDataWrapper]
+    taskIds.foreach { taskId =>
+      kvstore.delete(taskDataCls, taskId)
+    }
   }
 
   private def cleanupTasks(stage: LiveStage): Unit = {

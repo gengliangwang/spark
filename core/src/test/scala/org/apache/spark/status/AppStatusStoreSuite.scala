@@ -17,6 +17,8 @@
 
 package org.apache.spark.status
 
+import scala.collection.JavaConverters._
+
 import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.scheduler.{TaskInfo, TaskLocality}
@@ -136,6 +138,31 @@ class AppStatusStoreSuite extends SparkFunSuite {
     }
   }
 
+  test("clean up stages") {
+    val store = new InMemoryStore()
+    (0 until 100).map { sId =>
+      (0 until 100000).map { taskId =>
+        val task = newTaskData(sId * 100000 + taskId, "SUCCESS", sId)
+        store.write(task)
+      }
+    }
+    println("finish inserting")
+    val stageIds = Seq(1, 11, 66, 88)
+    var start = System.nanoTime()
+    // val stageKeys = stageIds.map(Array(_, attemptId))
+    // store.removeAllByIndexValues(classOf[TaskDataWrapper],
+    //   TaskIndexNames.STAGE, stageKeys.asJavaCollection)
+    // println((System.nanoTime() - start) / 1000000)
+    val taskIds = (0 until 100000).flatMap { taskId =>
+      stageIds.map(_ * 100000 + taskId)
+    }
+    // start = System.nanoTime()
+    taskIds.foreach { taskId =>
+      store.delete(classOf[TaskDataWrapper], taskId)
+    }
+    println((System.nanoTime() - start) / 1000000)
+  }
+
   private def compareQuantiles(count: Int, quantiles: Array[Double]): Unit = {
     val store = new InMemoryStore()
     val values = (0 until count).map { i =>
@@ -152,12 +179,13 @@ class AppStatusStoreSuite extends SparkFunSuite {
     }
   }
 
-  private def newTaskData(i: Int, status: String = "SUCCESS"): TaskDataWrapper = {
+  private def newTaskData(i: Int, status: String = "SUCCESS",
+                          sId: Int = stageId): TaskDataWrapper = {
     new TaskDataWrapper(
       i.toLong, i, i, i, i, i, i.toString, i.toString, status, i.toString, false, Nil, None, true,
       i, i, i, i, i, i, i, i, i, i,
       i, i, i, i, i, i, i, i, i, i,
-      i, i, i, i, stageId, attemptId)
+      i, i, i, i, sId, attemptId)
   }
 
   private def writeTaskDataToStore(i: Int, store: KVStore, status: String): Unit = {

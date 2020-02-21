@@ -1094,7 +1094,7 @@ class AppStatusListenerSuite extends SparkFunSuite with BeforeAndAfter {
       store.read(classOf[StageDataWrapper], Array(3, 0))
     }
     store.read(classOf[StageDataWrapper], Array(3, 1))
-
+    println(store.count(classOf[TaskDataWrapper]))
     // Start 2 tasks. Finish the second one.
     time += 1
     val tasks = createTasks(2, Array("1"))
