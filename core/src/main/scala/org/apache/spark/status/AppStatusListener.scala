@@ -1153,7 +1153,7 @@ private[spark] class AppStatusListener(
     }
     val taskIds = stages.flatMap { s =>
       val key = Array(s.info.stageId, s.info.attemptId)
-      tasksInStage.get(key).toArray
+      tasksInStage.getOrDefault(key, new ConcurrentLinkedQueue[Long]()).toArray
     }
 
     val stageIds = stages.map { s =>
