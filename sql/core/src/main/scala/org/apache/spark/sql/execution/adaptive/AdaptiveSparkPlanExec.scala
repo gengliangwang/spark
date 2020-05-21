@@ -114,6 +114,9 @@ case class AdaptiveSparkPlanExec(
 
   private var currentStageId = 0
 
+  private lazy val shouldSynchronizeUiData: Boolean =
+    conf.getConf(SQLConf.ADAPTIVE_EXECUTION_SYNCHRONIZE_UI_DATA)
+
   /**
    * Return type for `createQueryStages`
    * @param newPlan the new plan with created query stages.
@@ -162,7 +165,8 @@ case class AdaptiveSparkPlanExec(
         currentPhysicalPlan = result.newPlan
         if (result.newStages.nonEmpty) {
           stagesToReplace = result.newStages ++ stagesToReplace
-          executionId.foreach(onUpdatePlan(_, result.newStages.map(_.plan)))
+          executionId.foreach(
+            onUpdatePlan(_, result.newStages.map(_.plan), shouldSynchronizeUiData))
 
           // Start materialization of all new stages and fail fast if any stages failed eagerly
           result.newStages.foreach { stage =>
@@ -232,7 +236,7 @@ case class AdaptiveSparkPlanExec(
       // Run the final plan when there's no more unfinished stages.
       currentPhysicalPlan = applyPhysicalRules(result.newPlan, queryStageOptimizerRules)
       isFinalPlan = true
-      executionId.foreach(onUpdatePlan(_, Seq(currentPhysicalPlan)))
+      executionId.foreach(onUpdatePlan(_, Seq(currentPhysicalPlan), shouldSynchronizeUiData))
       currentPhysicalPlan
     }
   }
@@ -242,8 +246,8 @@ case class AdaptiveSparkPlanExec(
     // Subqueries that don't belong to any query stage of the main query will execute after the
     // last UI update in `getFinalPhysicalPlan`, so we need to update UI here again to make sure
     // the newly generated nodes of those subqueries are updated.
-    if (!isSubquery && currentPhysicalPlan.find(_.subqueries.nonEmpty).isDefined) {
-      getExecutionId.foreach(onUpdatePlan(_, Seq.empty))
+    if (!isSubquery) {
+      getExecutionId.foreach(onUpdatePlan(_, Seq.empty, updateSQLExecution = true))
     }
     logOnLevel(s"Final plan: $currentPhysicalPlan")
   }
@@ -511,7 +515,10 @@ case class AdaptiveSparkPlanExec(
   /**
    * Notify the listeners of the physical plan change.
    */
-  private def onUpdatePlan(executionId: Long, newSubPlans: Seq[SparkPlan]): Unit = {
+  private def onUpdatePlan(
+    executionId: Long,
+    newSubPlans: Seq[SparkPlan],
+    updateSQLExecution: Boolean): Unit = {
     if (isSubquery) {
       // When executing subqueries, we can't update the query plan in the UI as the
       // UI doesn't support partial update yet. However, the subquery may have been

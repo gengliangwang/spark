@@ -415,6 +415,16 @@ object SQLConf {
     .checkValues(Set("TRACE", "DEBUG", "INFO", "WARN", "ERROR"))
     .createWithDefault("debug")
 
+  val ADAPTIVE_EXECUTION_SYNCHRONIZE_UI_DATA = buildConf("spark.sql.adaptive.SynchronizeUiData")
+    .internal()
+    .doc("When true, Spark will synchronously update the SQL plan graph during execution, so " +
+      "thatusers can see the latest execution plan in Spark live UI. For live UI, this may " +
+      "increase the GC pressure in Driver. For history server, this can slow down the event log " +
+      "parser.")
+    .version("3.1.0")
+    .booleanConf
+    .createWithDefault(false)
+
   val ADVISORY_PARTITION_SIZE_IN_BYTES =
     buildConf("spark.sql.adaptive.advisoryPartitionSizeInBytes")
       .doc("The advisory size in bytes of the shuffle partition during adaptive optimization " +
