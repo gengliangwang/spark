@@ -112,10 +112,14 @@ def determine_modules_to_test(changed_modules):
     ['root']
     >>> [x.name for x in determine_modules_to_test([modules.build])]
     ['root']
+    >>> [x.name for x in determine_modules_to_test([modules.core])]
+    ['root']
+    >>> [x.name for x in determine_modules_to_test([modules.launcher])]
+    ['root']
     >>> [x.name for x in determine_modules_to_test([modules.graphx])]
     ['graphx', 'examples']
-    >>> x = [x.name for x in determine_modules_to_test([modules.sql])]
-    >>> x # doctest: +NORMALIZE_WHITESPACE
+    >>> [x.name for x in determine_modules_to_test([modules.sql])]
+    ... # doctest: +NORMALIZE_WHITESPACE
     ['sql', 'avro', 'hive', 'mllib', 'sql-kafka-0-10', 'examples', 'hive-thriftserver',
      'pyspark-sql', 'repl', 'sparkr', 'pyspark-mllib', 'pyspark-ml']
     """
@@ -595,13 +599,20 @@ def main():
 
     changed_modules = None
     changed_files = None
-    if test_env == "amplab_jenkins" and os.environ.get("AMP_JENKINS_PRB"):
+    should_only_test_modules = "TEST_ONLY_MODULES" in os.environ
+    if should_only_test_modules:
+        str_test_modules = [m.strip() for m in os.environ.get("TEST_ONLY_MODULES").split(",")]
+        test_modules = [m for m in modules.all_modules if m.name in str_test_modules]
+        # Directly uses test_modules as changed modules to apply tags and environments
+        # as if all specified test modules are changed.
+        changed_modules = test_modules
+        excluded_tags = determine_tags_to_exclude(changed_modules)
+    elif test_env == "amplab_jenkins" and os.environ.get("AMP_JENKINS_PRB"):
         target_branch = os.environ["ghprbTargetBranch"]
         changed_files = identify_changed_files_from_git_commits("HEAD", target_branch=target_branch)
         changed_modules = determine_modules_for_files(changed_files)
         excluded_tags = determine_tags_to_exclude(changed_modules)
-
-    if not changed_modules:
+    else:
         changed_modules = [modules.root]
         excluded_tags = []
     print("[info] Found the following changed modules:",
@@ -616,33 +627,34 @@ def main():
         test_environ.update(m.environ)
     setup_test_environ(test_environ)
 
-    test_modules = determine_modules_to_test(changed_modules)
-
-    # license checks
-    run_apache_rat_checks()
-
-    # style checks
-    if not changed_files or any(f.endswith(".scala")
-                                or f.endswith("scalastyle-config.xml")
-                                for f in changed_files):
-        run_scala_style_checks(extra_profiles)
     should_run_java_style_checks = False
-    if not changed_files or any(f.endswith(".java")
-                                or f.endswith("checkstyle.xml")
-                                or f.endswith("checkstyle-suppressions.xml")
-                                for f in changed_files):
-        # Run SBT Checkstyle after the build to prevent a side-effect to the build.
-        should_run_java_style_checks = True
-    if not changed_files or any(f.endswith("lint-python")
-                                or f.endswith("tox.ini")
-                                or f.endswith(".py")
-                                for f in changed_files):
-        run_python_style_checks()
-    if not changed_files or any(f.endswith(".R")
-                                or f.endswith("lint-r")
-                                or f.endswith(".lintr")
-                                for f in changed_files):
-        run_sparkr_style_checks()
+    if not should_only_test_modules:
+        test_modules = determine_modules_to_test(changed_modules)
+
+        # license checks
+        run_apache_rat_checks()
+
+        # style checks
+        if not changed_files or any(f.endswith(".scala")
+                                    or f.endswith("scalastyle-config.xml")
+                                    for f in changed_files):
+            run_scala_style_checks(extra_profiles)
+        if not changed_files or any(f.endswith(".java")
+                                    or f.endswith("checkstyle.xml")
+                                    or f.endswith("checkstyle-suppressions.xml")
+                                    for f in changed_files):
+            # Run SBT Checkstyle after the build to prevent a side-effect to the build.
+            should_run_java_style_checks = True
+        if not changed_files or any(f.endswith("lint-python")
+                                    or f.endswith("tox.ini")
+                                    or f.endswith(".py")
+                                    for f in changed_files):
+            run_python_style_checks()
+        if not changed_files or any(f.endswith(".R")
+                                    or f.endswith("lint-r")
+                                    or f.endswith(".lintr")
+                                    for f in changed_files):
+            run_sparkr_style_checks()
 
     # determine if docs were changed and if we're inside the amplab environment
     # note - the below commented out until *all* Jenkins workers can get `jekyll` installed
@@ -679,6 +691,10 @@ def main():
 
 
 def _test():
+    if "TEST_ONLY_MODULES" in os.environ:
+        # Do not do anything except testing the targeted modules.
+        return
+
     import doctest
     failure_count = doctest.testmod()[0]
     if failure_count:
