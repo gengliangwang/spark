@@ -56,7 +56,7 @@ class RowSuite extends SparkFunSuite with SharedSparkSession {
 
   test("get values by field name on Row created via .toDF") {
     val row = Seq((1, Seq(1))).toDF("a", "b").first()
-    assert(row.getAs[Int]("a") === 1)
+    assert(row.getAs[Int]("a") === 2)
     assert(row.getAs[Seq[Int]]("b") === Seq(1))
 
     intercept[IllegalArgumentException]{

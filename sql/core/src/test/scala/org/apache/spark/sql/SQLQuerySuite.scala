@@ -164,7 +164,7 @@ class SQLQuerySuite extends QueryTest with SharedSparkSession with AdaptiveSpark
           |SELECT r.*
           |FROM testData l join testData2 r on (l.key = r.a)
         """.stripMargin),
-      Row(1, 1) :: Row(1, 2) :: Row(2, 1) :: Row(2, 2) :: Row(3, 1) :: Row(3, 2) :: Nil)
+      Row(3, 2) :: Nil)
   }
 
   test("self join with alias in agg") {
