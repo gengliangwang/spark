@@ -1030,7 +1030,7 @@ object TestSettings {
     // Show only the failed test cases in github action to make the log more readable.
     testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest,
       sys.env.get("GITHUB_ACTIONS").map { _ =>
-        Seq("-eNCXEHLOPQMDSF")
+        Seq("-eNCXEHLOPQMDF")
       }.getOrElse(Nil): _*),
     testOptions in Test += Tests.Argument(TestFrameworks.JUnit, "-v", "-a"),
     // Required to detect Junit tests for each project, see also https://github.com/sbt/junit-interface/issues/35
