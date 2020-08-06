@@ -242,6 +242,12 @@ jobs:
       run: ./dev/check-license
     - name: Dependencies test
       run: ./dev/test-dependencies.sh
+    - name: Lint Code Base
+      uses: docker://github/super-linter:v3
+      env:
+        DEFAULT_BRANCH: master
+        VALIDATE_MD: true
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Run documentation build
       run: |
         cd docs
