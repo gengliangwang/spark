@@ -17,9 +17,15 @@
 
 package org.apache.spark.status
 
+import scala.collection.JavaConverters._
+import scala.collection.mutable
+import scala.util.Random
+
 import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.executor.TaskMetrics
 import org.apache.spark.scheduler.{TaskInfo, TaskLocality}
+import org.apache.spark.status.api.v1
+import org.apache.spark.status.api.v1.{TaskSorting, TaskStatus}
 import org.apache.spark.util.{Distribution, Utils}
 import org.apache.spark.util.kvstore._
 
@@ -76,6 +82,48 @@ class AppStatusStoreSuite extends SparkFunSuite {
     }
 
     assert(store.count(classOf[CachedQuantile]) === 2)
+  }
+
+  test("task list") {
+    val store = new InMemoryStore()
+    val numberOfStages = 100
+    val numberOfTasksPerStage = 100
+    // `numberOfStages` should be greater than `numberOfTasksPerStage` so that the generated task ID
+    // won't overlap.
+    assert(numberOfStages >= numberOfTasksPerStage)
+    val taskIdToStageId = new mutable.HashMap[Long, Int]()
+    (0 until numberOfStages).map { sId =>
+      (0 until numberOfTasksPerStage).map { tId =>
+        val taskId = sId * numberOfTasksPerStage + tId
+        taskIdToStageId(taskId) = sId
+        val task = newTaskData(sId * numberOfTasksPerStage + tId, "SUCCESS", sId)
+        store.write(task)
+      }
+    }
+    val appStatusStore = new AppStatusStore(store)
+    val targetStageId = new Random().nextInt(numberOfStages)
+    Seq(1, numberOfStages/2, numberOfStages).foreach { maxTasks =>
+      verifyTaskList(
+        appStatusStore.taskList(targetStageId, attemptId, maxTasks),
+        maxTasks,
+        targetStageId,
+        taskIdToStageId.toMap)
+      verifyTaskList(appStatusStore.taskList(
+        targetStageId, attemptId, 0, length = maxTasks, TaskSorting.ID,
+        Seq(TaskStatus.SUCCESS).asJava), maxTasks, targetStageId, taskIdToStageId.toMap)
+    }
+  }
+
+  private def verifyTaskList(
+      tasks: Seq[v1.TaskData],
+      expectedLength: Int,
+      targetStageId: Int,
+      taskIdToStageId: Map[Long, Int]): Unit = {
+    assert(tasks.length == expectedLength)
+    tasks.foreach { task =>
+      assert(taskIdToStageId.contains(task.taskId))
+      assert(taskIdToStageId(task.taskId) == targetStageId)
+    }
   }
 
   private def createAppStore(disk: Boolean, live: Boolean): AppStatusStore = {
@@ -152,12 +200,15 @@ class AppStatusStoreSuite extends SparkFunSuite {
     }
   }
 
-  private def newTaskData(i: Int, status: String = "SUCCESS"): TaskDataWrapper = {
+  private def newTaskData(
+      i: Int,
+      status: String = "SUCCESS",
+      stageIdOfTask: Int = stageId): TaskDataWrapper = {
     new TaskDataWrapper(
       i.toLong, i, i, i, i, i, i.toString, i.toString, status, i.toString, false, Nil, None, true,
       i, i, i, i, i, i, i, i, i, i,
       i, i, i, i, i, i, i, i, i, i,
-      i, i, i, i, stageId, attemptId)
+      i, i, i, i, stageIdOfTask, attemptId)
   }
 
   private def writeTaskDataToStore(i: Int, store: KVStore, status: String): Unit = {

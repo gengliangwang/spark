@@ -23,11 +23,10 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.HashMap
 
 import org.apache.spark.{JobExecutionStatus, SparkConf, SparkException}
-import org.apache.spark.resource.ResourceProfileManager
 import org.apache.spark.status.api.v1
 import org.apache.spark.ui.scope._
 import org.apache.spark.util.Utils
-import org.apache.spark.util.kvstore.{InMemoryStore, KVStore}
+import org.apache.spark.util.kvstore.{InMemoryStore, KVIndex, KVStore}
 
 /**
  * A wrapper around a KVStore that provides methods for accessing the API data stored within.
@@ -376,8 +375,8 @@ private[spark] class AppStatusStore(
 
   def taskList(stageId: Int, stageAttemptId: Int, maxTasks: Int): Seq[v1.TaskData] = {
     val stageKey = Array(stageId, stageAttemptId)
-    val taskDataWrapperIter = store.view(classOf[TaskDataWrapper]).index("stage")
-      .first(stageKey).last(stageKey).reverse().max(maxTasks).asScala
+    val taskDataWrapperIter = store.view(classOf[TaskDataWrapper]).index(KVIndex.NATURAL_INDEX_NAME)
+      .parent(stageKey).reverse().max(maxTasks).asScala
     constructTaskDataList(taskDataWrapperIter).reverse
   }
 
@@ -409,14 +408,9 @@ private[spark] class AppStatusStore(
       statuses: JList[v1.TaskStatus] = List().asJava): Seq[v1.TaskData] = {
     val stageKey = Array(stageId, stageAttemptId)
     val base = store.view(classOf[TaskDataWrapper])
-    val indexed = sortBy match {
-      case Some(index) =>
-        base.index(index).parent(stageKey)
-
-      case _ =>
-        // Sort by ID, which is the "stage" index.
-        base.index("stage").first(stageKey).last(stageKey)
-    }
+    // By default, sort by the task ID
+    val sortByIndex = sortBy.getOrElse(KVIndex.NATURAL_INDEX_NAME)
+    val indexed = base.index(sortByIndex).parent(stageKey)
 
     val ordered = if (ascending) indexed else indexed.reverse()
     val taskDataWrapperIter = if (statuses != null && !statuses.isEmpty) {
