@@ -37,7 +37,7 @@ import org.apache.spark.util.kvstore._
  * operations (except the case for caching) after calling switch to level DB.
  */
 
-private[history] class HybridStore extends KVStore {
+private[spark] class HybridStore extends KVStore {
 
   private val inMemoryStore = new InMemoryStore()
 
@@ -168,7 +168,7 @@ private[history] class HybridStore extends KVStore {
    * This method return the store that we should use.
    * Visible for testing.
    */
-  private[history] def getStore(): KVStore = {
+  def getStore(): KVStore = {
     if (shouldUseInMemoryStore.get) {
       inMemoryStore
     } else {

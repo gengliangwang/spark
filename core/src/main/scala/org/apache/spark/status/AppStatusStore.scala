@@ -23,10 +23,11 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.HashMap
 
 import org.apache.spark.{JobExecutionStatus, SparkConf, SparkException}
+import org.apache.spark.deploy.history.HybridStore
 import org.apache.spark.status.api.v1
 import org.apache.spark.ui.scope._
 import org.apache.spark.util.Utils
-import org.apache.spark.util.kvstore.{InMemoryStore, KVIndex, KVStore}
+import org.apache.spark.util.kvstore.{InMemoryStore, KVIndex, KVStore, LevelDB}
 
 /**
  * A wrapper around a KVStore that provides methods for accessing the API data stored within.
@@ -375,8 +376,12 @@ private[spark] class AppStatusStore(
 
   def taskList(stageId: Int, stageAttemptId: Int, maxTasks: Int): Seq[v1.TaskData] = {
     val stageKey = Array(stageId, stageAttemptId)
-    val taskDataWrapperIter = store.view(classOf[TaskDataWrapper]).index(KVIndex.NATURAL_INDEX_NAME)
-      .parent(stageKey).reverse().max(maxTasks).asScala
+    val view = if (useInMemoryStore(store)) {
+      store.view(classOf[TaskDataWrapper]).index(KVIndex.NATURAL_INDEX_NAME).parent(stageKey)
+    } else {
+      store.view(classOf[TaskDataWrapper]).index("stage").first(stageKey).last(stageKey)
+    }
+    val taskDataWrapperIter = view.reverse().max(maxTasks).asScala
     constructTaskDataList(taskDataWrapperIter).reverse
   }
 
@@ -398,6 +403,13 @@ private[spark] class AppStatusStore(
     taskList(stageId, stageAttemptId, offset, length, indexName, ascending, statuses)
   }
 
+  private def useInMemoryStore(store: KVStore): Boolean = store match {
+    case _: InMemoryStore => true
+    case e: ElementTrackingStore => useInMemoryStore(e.getStore())
+    case h: HybridStore => useInMemoryStore(h.getStore())
+    case _ => false
+  }
+
   def taskList(
       stageId: Int,
       stageAttemptId: Int,
@@ -408,10 +420,14 @@ private[spark] class AppStatusStore(
       statuses: JList[v1.TaskStatus] = List().asJava): Seq[v1.TaskData] = {
     val stageKey = Array(stageId, stageAttemptId)
     val base = store.view(classOf[TaskDataWrapper])
-    // By default, sort by the task ID
-    val sortByIndex = sortBy.getOrElse(KVIndex.NATURAL_INDEX_NAME)
-    val indexed = base.index(sortByIndex).parent(stageKey)
-
+    val indexed = if (sortBy.nonEmpty) {
+      base.index(sortBy.get).parent(stageKey)
+    } else if (useInMemoryStore(store)) {
+      base.index(KVIndex.NATURAL_INDEX_NAME).parent(stageKey)
+    } else {
+      // Sort by ID, which is the "stage" index.
+      base.index("stage").first(stageKey).last(stageKey)
+    }
     val ordered = if (ascending) indexed else indexed.reverse()
     val taskDataWrapperIter = if (statuses != null && !statuses.isEmpty) {
       val statusesStr = statuses.asScala.map(_.toString).toSet

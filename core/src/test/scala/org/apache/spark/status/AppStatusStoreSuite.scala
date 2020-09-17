@@ -17,6 +17,8 @@
 
 package org.apache.spark.status
 
+import java.io.File
+
 import scala.collection.JavaConverters._
 import scala.collection.mutable
 import scala.util.Random
@@ -84,8 +86,18 @@ class AppStatusStoreSuite extends SparkFunSuite {
     assert(store.count(classOf[CachedQuantile]) === 2)
   }
 
-  test("task list") {
-    val store = new InMemoryStore()
+  test("InMemoryStore: task list") {
+    testTaskList(new InMemoryStore())
+  }
+
+  test("LevelDB: task list") {
+    withTempDir { dir =>
+      val file = new File(dir.getCanonicalPath, "test.db")
+      testTaskList(new LevelDB(file))
+    }
+  }
+
+  private def testTaskList(store: KVStore) {
     val numberOfStages = 100
     val numberOfTasksPerStage = 100
     // `numberOfStages` should be greater than `numberOfTasksPerStage` so that the generated task ID

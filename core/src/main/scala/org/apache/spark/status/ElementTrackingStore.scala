@@ -118,6 +118,11 @@ private[spark] class ElementTrackingStore(store: KVStore, conf: SparkConf) exten
     })
   }
 
+  /**
+   * Returns the underlying KVStore.
+   */
+  def getStore(): KVStore = store
+
   override def read[T](klass: Class[T], naturalKey: Any): T = store.read(klass, naturalKey)
 
   override def write(value: Any): Unit = store.write(value)
