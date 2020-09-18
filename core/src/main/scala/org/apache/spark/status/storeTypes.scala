@@ -237,6 +237,11 @@ private[spark] class TaskDataWrapper(
     val stageId: Int,
     val stageAttemptId: Int) {
 
+  // def this() = {
+  //    this(0L, 0, 0, 0L, 0L, 0L, "", "", "", "", false, Seq.empty, None, false, 0L, 0L, 0L, 0L,
+  //      0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0, 0)
+  // }
+
   // SPARK-26260: To handle non successful tasks metrics (Running, Failed, Killed).
   private def getMetricValue(metric: Long): Long = {
     if (status != "SUCCESS") {
