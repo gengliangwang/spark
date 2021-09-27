@@ -36,9 +36,6 @@
   <profiles>
     <profile>
       <id>hadoop-provided</id>
-      <properties>
-        <spark.yarn.isHadoopProvided>true</spark.yarn.isHadoopProvided>
-      </properties>
     </profile>
     <profile>
       <id>hadoop-2.7</id>
