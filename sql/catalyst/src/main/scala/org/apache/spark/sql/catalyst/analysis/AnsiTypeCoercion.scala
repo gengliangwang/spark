@@ -164,6 +164,10 @@ object AnsiTypeCoercion extends TypeCoercionBase {
       // If the expected type equals the input type, no need to cast.
       case _ if expectedType.acceptsType(inType) => Some(inType)
 
+      // If input is a numeric type but not decimal, and we expect a decimal type,
+      // cast the input to decimal.
+      case (n: NumericType, DecimalType) => Some(DecimalType.forType(n))
+
       // Cast null type (usually from null literals) into target types
       // By default, the result type is `target.defaultConcreteType`. When the target type is
       // `TypeCollection`, there is another branch to find the "closet convertible data type" below.

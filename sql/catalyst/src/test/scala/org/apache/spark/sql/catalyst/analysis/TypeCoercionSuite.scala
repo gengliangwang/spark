@@ -31,7 +31,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
 
-class TypeCoercionSuite extends AnalysisTest {
+abstract class TypeCoercionSuiteBase extends AnalysisTest {
   import TypeCoercionSuite._
 
   // When Utils.isTesting is true, RuleIdCollection adds individual type coercion rules. Otherwise,
@@ -39,49 +39,23 @@ class TypeCoercionSuite extends AnalysisTest {
   // CombinedTypeCoercionRule.
   assert(Utils.isTesting, s"${IS_TESTING.key} is not set to true")
 
-  // scalastyle:off line.size.limit
-  // The following table shows all implicit data type conversions that are not visible to the user.
-  // +----------------------+----------+-----------+-------------+----------+------------+-----------+------------+------------+-------------+------------+----------+---------------+------------+----------+-------------+----------+----------------------+---------------------+-------------+--------------+
-  // | Source Type\CAST TO  | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | BinaryType | BooleanType | StringType | DateType | TimestampType | ArrayType  | MapType  | StructType  | NullType | CalendarIntervalType |     DecimalType     | NumericType | IntegralType |
-  // +----------------------+----------+-----------+-------------+----------+------------+-----------+------------+------------+-------------+------------+----------+---------------+------------+----------+-------------+----------+----------------------+---------------------+-------------+--------------+
-  // | ByteType             | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(3, 0)   | ByteType    | ByteType     |
-  // | ShortType            | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(5, 0)   | ShortType   | ShortType    |
-  // | IntegerType          | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(10, 0)  | IntegerType | IntegerType  |
-  // | LongType             | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(20, 0)  | LongType    | LongType     |
-  // | DoubleType           | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(30, 15) | DoubleType  | IntegerType  |
-  // | FloatType            | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(14, 7)  | FloatType   | IntegerType  |
-  // | Dec(10, 2)           | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(10, 2)  | Dec(10, 2)  | IntegerType  |
-  // | BinaryType           | X        | X         | X           | X        | X          | X         | X          | BinaryType | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | X                   | X           | X            |
-  // | BooleanType          | X        | X         | X           | X        | X          | X         | X          | X          | BooleanType | StringType | X        | X             | X          | X        | X           | X        | X                    | X                   | X           | X            |
-  // | StringType           | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | BinaryType | X           | StringType | DateType | TimestampType | X          | X        | X           | X        | X                    | DecimalType(38, 18) | DoubleType  | X            |
-  // | DateType             | X        | X         | X           | X        | X          | X         | X          | X          | X           | StringType | DateType | TimestampType | X          | X        | X           | X        | X                    | X                   | X           | X            |
-  // | TimestampType        | X        | X         | X           | X        | X          | X         | X          | X          | X           | StringType | DateType | TimestampType | X          | X        | X           | X        | X                    | X                   | X           | X            |
-  // | ArrayType            | X        | X         | X           | X        | X          | X         | X          | X          | X           | X          | X        | X             | ArrayType* | X        | X           | X        | X                    | X                   | X           | X            |
-  // | MapType              | X        | X         | X           | X        | X          | X         | X          | X          | X           | X          | X        | X             | X          | MapType* | X           | X        | X                    | X                   | X           | X            |
-  // | StructType           | X        | X         | X           | X        | X          | X         | X          | X          | X           | X          | X        | X             | X          | X        | StructType* | X        | X                    | X                   | X           | X            |
-  // | NullType             | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | BinaryType | BooleanType | StringType | DateType | TimestampType | ArrayType  | MapType  | StructType  | NullType | CalendarIntervalType | DecimalType(38, 18) | DoubleType  | IntegerType  |
-  // | CalendarIntervalType | X        | X         | X           | X        | X          | X         | X          | X          | X           | X          | X        | X             | X          | X        | X           | X        | CalendarIntervalType | X                   | X           | X            |
-  // +----------------------+----------+-----------+-------------+----------+------------+-----------+------------+------------+-------------+------------+----------+---------------+------------+----------+-------------+----------+----------------------+---------------------+-------------+--------------+
-  // Note: StructType* is castable when all the internal child types are castable according to the table.
-  // Note: ArrayType* is castable when the element type is castable according to the table.
-  // Note: MapType* is castable when both the key type and the value type are castable according to the table.
-  // scalastyle:on line.size.limit
+  protected def implicitCast(e: Expression, expectedType: AbstractDataType): Option[Expression]
 
-  private def shouldCast(from: DataType, to: AbstractDataType, expected: DataType): Unit = {
+  protected def shouldCast(from: DataType, to: AbstractDataType, expected: DataType): Unit = {
     // Check default value
-    val castDefault = TypeCoercion.implicitCast(default(from), to)
+    val castDefault = implicitCast(default(from), to)
     assert(DataType.equalsIgnoreCompatibleNullability(
       castDefault.map(_.dataType).getOrElse(null), expected),
       s"Failed to cast $from to $to")
 
     // Check null value
-    val castNull = TypeCoercion.implicitCast(createNull(from), to)
+    val castNull = implicitCast(createNull(from), to)
     assert(DataType.equalsIgnoreCaseAndNullability(
       castNull.map(_.dataType).getOrElse(null), expected),
       s"Failed to cast $from to $to")
   }
 
-  private def shouldNotCast(from: DataType, to: AbstractDataType): Unit = {
+  protected def shouldNotCast(from: DataType, to: AbstractDataType): Unit = {
     // Check default value
     val castDefault = TypeCoercion.implicitCast(default(from), to)
     assert(castDefault.isEmpty, s"Should not be able to cast $from to $to, but got $castDefault")
@@ -91,7 +65,7 @@ class TypeCoercionSuite extends AnalysisTest {
     assert(castNull.isEmpty, s"Should not be able to cast $from to $to, but got $castNull")
   }
 
-  private def default(dataType: DataType): Expression = dataType match {
+  protected def default(dataType: DataType): Expression = dataType match {
     case ArrayType(internalType: DataType, _) =>
       CreateArray(Seq(Literal.default(internalType)))
     case MapType(keyDataType: DataType, valueDataType: DataType, _) =>
@@ -99,7 +73,7 @@ class TypeCoercionSuite extends AnalysisTest {
     case _ => Literal.default(dataType)
   }
 
-  private def createNull(dataType: DataType): Expression = dataType match {
+  protected def createNull(dataType: DataType): Expression = dataType match {
     case ArrayType(internalType: DataType, _) =>
       CreateArray(Seq(Literal.create(null, internalType)))
     case MapType(keyDataType: DataType, valueDataType: DataType, _) =>
@@ -109,7 +83,7 @@ class TypeCoercionSuite extends AnalysisTest {
 
   // Check whether the type `checkedType` can be cast to all the types in `castableTypes`,
   // but cannot be cast to the other types in `allTypes`.
-  private def checkTypeCasting(checkedType: DataType, castableTypes: Seq[DataType]): Unit = {
+  protected def checkTypeCasting(checkedType: DataType, castableTypes: Seq[DataType]): Unit = {
     val nonCastableTypes = allTypes.filterNot(castableTypes.contains)
 
     castableTypes.foreach { tpe =>
@@ -117,23 +91,6 @@ class TypeCoercionSuite extends AnalysisTest {
     }
     nonCastableTypes.foreach { tpe =>
       shouldNotCast(checkedType, tpe)
-    }
-  }
-
-  private def checkWidenType(
-      widenFunc: (DataType, DataType) => Option[DataType],
-      t1: DataType,
-      t2: DataType,
-      expected: Option[DataType],
-      isSymmetric: Boolean = true): Unit = {
-    var found = widenFunc(t1, t2)
-    assert(found == expected,
-      s"Expected $expected as wider common type for $t1 and $t2, found $found")
-    // Test both directions to make sure the widening is symmetric.
-    if (isSymmetric) {
-      found = widenFunc(t2, t1)
-      assert(found == expected,
-        s"Expected $expected as wider common type for $t2 and $t1, found $found")
     }
   }
 
@@ -191,6 +148,57 @@ class TypeCoercionSuite extends AnalysisTest {
     shouldCast(checkedType, DecimalType, checkedType)
     shouldCast(checkedType, NumericType, checkedType)
     shouldNotCast(checkedType, IntegralType)
+  }
+}
+
+class TypeCoercionSuite extends TypeCoercionSuiteBase {
+  import TypeCoercionSuite._
+
+  // scalastyle:off line.size.limit
+  // The following table shows all implicit data type conversions that are not visible to the user.
+  // +----------------------+----------+-----------+-------------+----------+------------+-----------+------------+------------+-------------+------------+----------+---------------+------------+----------+-------------+----------+----------------------+---------------------+-------------+--------------+
+  // | Source Type\CAST TO  | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | BinaryType | BooleanType | StringType | DateType | TimestampType | ArrayType  | MapType  | StructType  | NullType | CalendarIntervalType |     DecimalType     | NumericType | IntegralType |
+  // +----------------------+----------+-----------+-------------+----------+------------+-----------+------------+------------+-------------+------------+----------+---------------+------------+----------+-------------+----------+----------------------+---------------------+-------------+--------------+
+  // | ByteType             | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(3, 0)   | ByteType    | ByteType     |
+  // | ShortType            | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(5, 0)   | ShortType   | ShortType    |
+  // | IntegerType          | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(10, 0)  | IntegerType | IntegerType  |
+  // | LongType             | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(20, 0)  | LongType    | LongType     |
+  // | DoubleType           | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(30, 15) | DoubleType  | IntegerType  |
+  // | FloatType            | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(14, 7)  | FloatType   | IntegerType  |
+  // | Dec(10, 2)           | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | X          | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | DecimalType(10, 2)  | Dec(10, 2)  | IntegerType  |
+  // | BinaryType           | X        | X         | X           | X        | X          | X         | X          | BinaryType | X           | StringType | X        | X             | X          | X        | X           | X        | X                    | X                   | X           | X            |
+  // | BooleanType          | X        | X         | X           | X        | X          | X         | X          | X          | BooleanType | StringType | X        | X             | X          | X        | X           | X        | X                    | X                   | X           | X            |
+  // | StringType           | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | BinaryType | X           | StringType | DateType | TimestampType | X          | X        | X           | X        | X                    | DecimalType(38, 18) | DoubleType  | X            |
+  // | DateType             | X        | X         | X           | X        | X          | X         | X          | X          | X           | StringType | DateType | TimestampType | X          | X        | X           | X        | X                    | X                   | X           | X            |
+  // | TimestampType        | X        | X         | X           | X        | X          | X         | X          | X          | X           | StringType | DateType | TimestampType | X          | X        | X           | X        | X                    | X                   | X           | X            |
+  // | ArrayType            | X        | X         | X           | X        | X          | X         | X          | X          | X           | X          | X        | X             | ArrayType* | X        | X           | X        | X                    | X                   | X           | X            |
+  // | MapType              | X        | X         | X           | X        | X          | X         | X          | X          | X           | X          | X        | X             | X          | MapType* | X           | X        | X                    | X                   | X           | X            |
+  // | StructType           | X        | X         | X           | X        | X          | X         | X          | X          | X           | X          | X        | X             | X          | X        | StructType* | X        | X                    | X                   | X           | X            |
+  // | NullType             | ByteType | ShortType | IntegerType | LongType | DoubleType | FloatType | Dec(10, 2) | BinaryType | BooleanType | StringType | DateType | TimestampType | ArrayType  | MapType  | StructType  | NullType | CalendarIntervalType | DecimalType(38, 18) | DoubleType  | IntegerType  |
+  // | CalendarIntervalType | X        | X         | X           | X        | X          | X         | X          | X          | X           | X          | X        | X             | X          | X        | X           | X        | CalendarIntervalType | X                   | X           | X            |
+  // +----------------------+----------+-----------+-------------+----------+------------+-----------+------------+------------+-------------+------------+----------+---------------+------------+----------+-------------+----------+----------------------+---------------------+-------------+--------------+
+  // Note: StructType* is castable when all the internal child types are castable according to the table.
+  // Note: ArrayType* is castable when the element type is castable according to the table.
+  // Note: MapType* is castable when both the key type and the value type are castable according to the table.
+  // scalastyle:on line.size.limit
+  override def implicitCast(e: Expression, expectedType: AbstractDataType): Option[Expression] =
+    TypeCoercion.implicitCast(e, expectedType)
+
+  private def checkWidenType(
+      widenFunc: (DataType, DataType) => Option[DataType],
+      t1: DataType,
+      t2: DataType,
+      expected: Option[DataType],
+      isSymmetric: Boolean = true): Unit = {
+    var found = widenFunc(t1, t2)
+    assert(found == expected,
+      s"Expected $expected as wider common type for $t1 and $t2, found $found")
+    // Test both directions to make sure the widening is symmetric.
+    if (isSymmetric) {
+      found = widenFunc(t2, t1)
+      assert(found == expected,
+        s"Expected $expected as wider common type for $t2 and $t1, found $found")
+    }
   }
 
   test("implicit type cast - BinaryType") {

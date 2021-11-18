@@ -19,7 +19,6 @@ package org.apache.spark.sql.catalyst.analysis
 
 import java.sql.Timestamp
 
-import org.apache.spark.internal.config.Tests.IS_TESTING
 import org.apache.spark.sql.catalyst.analysis.AnsiTypeCoercion._
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans._
@@ -28,15 +27,9 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.{Rule, RuleExecutor}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-import org.apache.spark.util.Utils
 
-class AnsiTypeCoercionSuite extends AnalysisTest {
+class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
   import TypeCoercionSuite._
-
-  // When Utils.isTesting is true, RuleIdCollection adds individual type coercion rules. Otherwise,
-  // RuleIdCollection doesn't add them because they are called in a train inside
-  // CombinedTypeCoercionRule.
-  assert(Utils.isTesting, s"${IS_TESTING.key} is not set to true")
 
   // scalastyle:off line.size.limit
   // The following table shows all implicit data type conversions that are not visible to the user.
@@ -65,30 +58,8 @@ class AnsiTypeCoercionSuite extends AnalysisTest {
   // Note: ArrayType* is castable when the element type is castable according to the table.
   // Note: MapType* is castable when both the key type and the value type are castable according to the table.
   // scalastyle:on line.size.limit
-
-  private def shouldCast(from: DataType, to: AbstractDataType, expected: DataType): Unit = {
-    // Check default value
-    val castDefault = AnsiTypeCoercion.implicitCast(default(from), to)
-    assert(DataType.equalsIgnoreCompatibleNullability(
-      castDefault.map(_.dataType).getOrElse(null), expected),
-      s"Failed to cast $from to $to")
-
-    // Check null value
-    val castNull = AnsiTypeCoercion.implicitCast(createNull(from), to)
-    assert(DataType.equalsIgnoreCaseAndNullability(
-      castNull.map(_.dataType).getOrElse(null), expected),
-      s"Failed to cast $from to $to")
-  }
-
-  private def shouldNotCast(from: DataType, to: AbstractDataType): Unit = {
-    // Check default value
-    val castDefault = AnsiTypeCoercion.implicitCast(default(from), to)
-    assert(castDefault.isEmpty, s"Should not be able to cast $from to $to, but got $castDefault")
-
-    // Check null value
-    val castNull = AnsiTypeCoercion.implicitCast(createNull(from), to)
-    assert(castNull.isEmpty, s"Should not be able to cast $from to $to, but got $castNull")
-  }
+  override def implicitCast(e: Expression, expectedType: AbstractDataType): Option[Expression] =
+    AnsiTypeCoercion.implicitCast(e, expectedType)
 
   private def shouldCastStringLiteral(to: AbstractDataType, expected: DataType): Unit = {
     val input = Literal("123")
@@ -110,35 +81,6 @@ class AnsiTypeCoercionSuite extends AnalysisTest {
     assert(castResult.isEmpty, s"Should not be able to cast non-foldable String input to $to")
   }
 
-  private def default(dataType: DataType): Expression = dataType match {
-    case ArrayType(internalType: DataType, _) =>
-      CreateArray(Seq(Literal.default(internalType)))
-    case MapType(keyDataType: DataType, valueDataType: DataType, _) =>
-      CreateMap(Seq(Literal.default(keyDataType), Literal.default(valueDataType)))
-    case _ => Literal.default(dataType)
-  }
-
-  private def createNull(dataType: DataType): Expression = dataType match {
-    case ArrayType(internalType: DataType, _) =>
-      CreateArray(Seq(Literal.create(null, internalType)))
-    case MapType(keyDataType: DataType, valueDataType: DataType, _) =>
-      CreateMap(Seq(Literal.create(null, keyDataType), Literal.create(null, valueDataType)))
-    case _ => Literal.create(null, dataType)
-  }
-
-  // Check whether the type `checkedType` can be cast to all the types in `castableTypes`,
-  // but cannot be cast to the other types in `allTypes`.
-  private def checkTypeCasting(checkedType: DataType, castableTypes: Seq[DataType]): Unit = {
-    val nonCastableTypes = allTypes.filterNot(castableTypes.contains)
-
-    castableTypes.foreach { tpe =>
-      shouldCast(checkedType, tpe, tpe)
-    }
-    nonCastableTypes.foreach { tpe =>
-      shouldNotCast(checkedType, tpe)
-    }
-  }
-
   private def checkWidenType(
       widenFunc: (DataType, DataType) => Option[DataType],
       t1: DataType,
@@ -154,64 +96,6 @@ class AnsiTypeCoercionSuite extends AnalysisTest {
       assert(found == expected,
         s"Expected $expected as wider common type for $t2 and $t1, found $found")
     }
-  }
-
-  test("implicit type cast - ByteType") {
-    val checkedType = ByteType
-    checkTypeCasting(checkedType, castableTypes = numericTypes)
-    shouldCast(checkedType, DecimalType, DecimalType.ByteDecimal)
-    shouldCast(checkedType, NumericType, checkedType)
-    shouldCast(checkedType, IntegralType, checkedType)
-  }
-
-  test("implicit type cast - ShortType") {
-    val checkedType = ShortType
-    checkTypeCasting(checkedType, castableTypes = numericTypes.filterNot(_ == ByteType))
-    shouldCast(checkedType, DecimalType, DecimalType.ShortDecimal)
-    shouldCast(checkedType, NumericType, checkedType)
-    shouldCast(checkedType, IntegralType, checkedType)
-  }
-
-  test("implicit type cast - IntegerType") {
-    val checkedType = IntegerType
-    checkTypeCasting(checkedType, castableTypes =
-      Seq(IntegerType, LongType, FloatType, DoubleType, DecimalType.SYSTEM_DEFAULT))
-    shouldCast(IntegerType, DecimalType, DecimalType.IntDecimal)
-    shouldCast(checkedType, NumericType, checkedType)
-    shouldCast(checkedType, IntegralType, checkedType)
-  }
-
-  test("implicit type cast - LongType") {
-    val checkedType = LongType
-    checkTypeCasting(checkedType, castableTypes =
-      Seq(LongType, FloatType, DoubleType, DecimalType.SYSTEM_DEFAULT))
-    shouldCast(checkedType, DecimalType, DecimalType.LongDecimal)
-    shouldCast(checkedType, NumericType, checkedType)
-    shouldCast(checkedType, IntegralType, checkedType)
-  }
-
-  test("implicit type cast - FloatType") {
-    val checkedType = FloatType
-    checkTypeCasting(checkedType, castableTypes = Seq(FloatType, DoubleType))
-    shouldCast(checkedType, DecimalType, DecimalType.FloatDecimal)
-    shouldCast(checkedType, NumericType, checkedType)
-    shouldNotCast(checkedType, IntegralType)
-  }
-
-  test("implicit type cast - DoubleType") {
-    val checkedType = DoubleType
-    checkTypeCasting(checkedType, castableTypes = Seq(DoubleType))
-    shouldCast(checkedType, DecimalType, DecimalType.DoubleDecimal)
-    shouldCast(checkedType, NumericType, checkedType)
-    shouldNotCast(checkedType, IntegralType)
-  }
-
-  test("implicit type cast - DecimalType(10, 2)") {
-    val checkedType = DecimalType(10, 2)
-    checkTypeCasting(checkedType, castableTypes = fractionalTypes)
-    shouldCast(checkedType, DecimalType, checkedType)
-    shouldCast(checkedType, NumericType, checkedType)
-    shouldNotCast(checkedType, IntegralType)
   }
 
   test("implicit type cast - BinaryType") {
