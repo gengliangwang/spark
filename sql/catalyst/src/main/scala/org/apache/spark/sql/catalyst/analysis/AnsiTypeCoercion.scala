@@ -142,9 +142,30 @@ object AnsiTypeCoercion extends TypeCoercionBase {
   }
 
   override def implicitCast(e: Expression, expectedType: AbstractDataType): Option[Expression] = {
-    implicitCast(e.dataType, expectedType).map { dt =>
+    implicitCast(e.dataType, expectedType, e.foldable).map { dt =>
       if (dt == e.dataType) e else Cast(e, dt)
     }
+  }
+
+  // find the closet convertible data type, which can be implicit cast to all other
+  // convertible types.
+  private def findClosestDataType(types: Seq[DataType]): Option[DataType] = {
+    if (types.isEmpty) {
+      return None
+    }
+    var result = types.head
+    types.tail.foreach { input =>
+      val widerType = findWiderTypeForTwo(result, input)
+      if (widerType.isEmpty) {
+        return None
+      } else if (widerType.contains(DoubleType) && result == FloatType) {
+        result = input
+      } else if (widerType.contains(result)) {
+        result = input
+      }
+    }
+
+    Some(result)
   }
 
   /**
@@ -153,14 +174,9 @@ object AnsiTypeCoercion extends TypeCoercionBase {
    */
   private def implicitCast(
       inType: DataType,
-      expectedType: AbstractDataType): Option[DataType] = {
+      expectedType: AbstractDataType,
+      isInputFoldable: Boolean): Option[DataType] = {
     (inType, expectedType) match {
-      case (_, target: DataType) =>
-        if (Cast.canANSIStoreAssign(inType, target)) {
-          Some(target)
-        } else {
-          None
-        }
       // If the expected type equals the input type, no need to cast.
       case _ if expectedType.acceptsType(inType) => Some(inType)
 
@@ -174,6 +190,26 @@ object AnsiTypeCoercion extends TypeCoercionBase {
       case (NullType, target) if !target.isInstanceOf[TypeCollection] =>
         Some(target.defaultConcreteType)
 
+      // This type coercion system will allow implicit converting String type literals as other
+      // primitive types, in case of breaking too many existing Spark SQL queries.
+      case (StringType, a: AtomicType) if isInputFoldable =>
+        Some(a)
+
+      // If the target type is any Numeric type, convert the String type literal as Double type.
+      case (StringType, NumericType) if isInputFoldable =>
+        Some(DoubleType)
+
+      // If the target type is any Decimal type, convert the String type literal as Double type.
+      case (StringType, DecimalType) if isInputFoldable =>
+        Some(DecimalType.SYSTEM_DEFAULT)
+
+      case (_, target: DataType) =>
+        if (Cast.canANSIStoreAssign(inType, target)) {
+          Some(target)
+        } else {
+          None
+        }
+
       // When we reach here, input type is not acceptable for any types in this type collection,
       // first try to find the all the expected types we can implicitly cast:
       //   1. if there is no convertible data types, return None;
@@ -184,26 +220,8 @@ object AnsiTypeCoercion extends TypeCoercionBase {
         // Since Spark contains special objects like `NumericType` and `DecimalType`, which accepts
         // multiple types and they are `AbstractDataType` instead of `DataType`, here we use the
         // conversion result their representation.
-        val convertibleTypes = types.flatMap(implicitCast(inType, _))
-        if (convertibleTypes.isEmpty) {
-          None
-        } else {
-          // find the closet convertible data type, which can be implicit cast to all other
-          // convertible types.
-          val closestConvertibleType = convertibleTypes.find { dt =>
-            convertibleTypes.forall { target =>
-              implicitCast(dt, target).isDefined
-            }
-          }
-          // If the closet convertible type is Float type and the convertible types contains Double
-          // type, simply return Double type as the closet convertible type to avoid potential
-          // precision loss on converting the Integral type as Float type.
-          if (closestConvertibleType.contains(FloatType) && convertibleTypes.contains(DoubleType)) {
-            Some(DoubleType)
-          } else {
-            closestConvertibleType
-          }
-        }
+        val convertibleTypes = types.flatMap(implicitCast(inType, _, isInputFoldable))
+        findClosestDataType(convertibleTypes)
 
       case _ => None
     }

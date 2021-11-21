@@ -57,11 +57,11 @@ abstract class TypeCoercionSuiteBase extends AnalysisTest {
 
   protected def shouldNotCast(from: DataType, to: AbstractDataType): Unit = {
     // Check default value
-    val castDefault = TypeCoercion.implicitCast(default(from), to)
+    val castDefault = implicitCast(default(from), to)
     assert(castDefault.isEmpty, s"Should not be able to cast $from to $to, but got $castDefault")
 
     // Check null value
-    val castNull = TypeCoercion.implicitCast(createNull(from), to)
+    val castNull = implicitCast(createNull(from), to)
     assert(castNull.isEmpty, s"Should not be able to cast $from to $to, but got $castNull")
   }
 
@@ -149,6 +149,77 @@ abstract class TypeCoercionSuiteBase extends AnalysisTest {
     shouldCast(checkedType, NumericType, checkedType)
     shouldNotCast(checkedType, IntegralType)
   }
+
+  test("implicit type cast - BinaryType") {
+    val checkedType = BinaryType
+    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType))
+    shouldNotCast(checkedType, DecimalType)
+    shouldNotCast(checkedType, NumericType)
+    shouldNotCast(checkedType, IntegralType)
+  }
+
+  test("implicit type cast - BooleanType") {
+    val checkedType = BooleanType
+    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType))
+    shouldNotCast(checkedType, DecimalType)
+    shouldNotCast(checkedType, NumericType)
+    shouldNotCast(checkedType, IntegralType)
+  }
+
+  test("implicit type cast - DateType") {
+    val checkedType = DateType
+    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType, TimestampType))
+    shouldNotCast(checkedType, DecimalType)
+    shouldNotCast(checkedType, NumericType)
+    shouldNotCast(checkedType, IntegralType)
+  }
+
+  test("implicit type cast - TimestampType") {
+    val checkedType = TimestampType
+    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType, DateType))
+    shouldNotCast(checkedType, DecimalType)
+    shouldNotCast(checkedType, NumericType)
+    shouldNotCast(checkedType, IntegralType)
+  }
+
+  test("implicit type cast between two Map types") {
+    val sourceType = MapType(IntegerType, IntegerType, true)
+    val castableTypes = numericTypes ++ Seq(StringType).filter(!Cast.forceNullable(IntegerType, _))
+    val targetTypes = numericTypes.filter(!Cast.forceNullable(IntegerType, _)).map { t =>
+      MapType(t, sourceType.valueType, valueContainsNull = true)
+    }
+    val nonCastableTargetTypes = allTypes.filterNot(castableTypes.contains(_)).map {t =>
+      MapType(t, sourceType.valueType, valueContainsNull = true)
+    }
+
+    // Tests that its possible to setup implicit casts between two map types when
+    // source map's key type is integer and the target map's key type are either Byte, Short,
+    // Long, Double, Float, Decimal(38, 18) or String.
+    targetTypes.foreach { targetType =>
+      shouldCast(sourceType, targetType, targetType)
+    }
+
+    // Tests that its not possible to setup implicit casts between two map types when
+    // source map's key type is integer and the target map's key type are either Binary,
+    // Boolean, Date, Timestamp, Array, Struct, CalendarIntervalType or NullType
+    nonCastableTargetTypes.foreach { targetType =>
+      shouldNotCast(sourceType, targetType)
+    }
+
+    // Tests that its not possible to cast from nullable map type to not nullable map type.
+    val targetNotNullableTypes = allTypes.filterNot(_ == IntegerType).map { t =>
+      MapType(t, sourceType.valueType, valueContainsNull = false)
+    }
+    val sourceMapExprWithValueNull =
+      CreateMap(Seq(Literal.default(sourceType.keyType),
+        Literal.create(null, sourceType.valueType)))
+    targetNotNullableTypes.foreach { targetType =>
+      val castDefault =
+        TypeCoercion.implicitCast(sourceMapExprWithValueNull, targetType)
+      assert(castDefault.isEmpty,
+        s"Should not be able to cast $sourceType to $targetType, but got $castDefault")
+    }
+  }
 }
 
 class TypeCoercionSuite extends TypeCoercionSuiteBase {
@@ -201,22 +272,6 @@ class TypeCoercionSuite extends TypeCoercionSuiteBase {
     }
   }
 
-  test("implicit type cast - BinaryType") {
-    val checkedType = BinaryType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType))
-    shouldNotCast(checkedType, DecimalType)
-    shouldNotCast(checkedType, NumericType)
-    shouldNotCast(checkedType, IntegralType)
-  }
-
-  test("implicit type cast - BooleanType") {
-    val checkedType = BooleanType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType))
-    shouldNotCast(checkedType, DecimalType)
-    shouldNotCast(checkedType, NumericType)
-    shouldNotCast(checkedType, IntegralType)
-  }
-
   test("implicit type cast - StringType") {
     val checkedType = StringType
     val nonCastableTypes =
@@ -224,22 +279,6 @@ class TypeCoercionSuite extends TypeCoercionSuiteBase {
     checkTypeCasting(checkedType, castableTypes = allTypes.filterNot(nonCastableTypes.contains))
     shouldCast(checkedType, DecimalType, DecimalType.SYSTEM_DEFAULT)
     shouldCast(checkedType, NumericType, NumericType.defaultConcreteType)
-    shouldNotCast(checkedType, IntegralType)
-  }
-
-  test("implicit type cast - DateType") {
-    val checkedType = DateType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType, TimestampType))
-    shouldNotCast(checkedType, DecimalType)
-    shouldNotCast(checkedType, NumericType)
-    shouldNotCast(checkedType, IntegralType)
-  }
-
-  test("implicit type cast - TimestampType") {
-    val checkedType = TimestampType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType, DateType))
-    shouldNotCast(checkedType, DecimalType)
-    shouldNotCast(checkedType, NumericType)
     shouldNotCast(checkedType, IntegralType)
   }
 
@@ -255,45 +294,6 @@ class TypeCoercionSuite extends TypeCoercionSuiteBase {
     shouldNotCast(checkedType, DecimalType)
     shouldNotCast(checkedType, NumericType)
     shouldNotCast(checkedType, IntegralType)
-  }
-
-  test("implicit type cast between two Map types") {
-    val sourceType = MapType(IntegerType, IntegerType, true)
-    val castableTypes = numericTypes ++ Seq(StringType).filter(!Cast.forceNullable(IntegerType, _))
-    val targetTypes = numericTypes.filter(!Cast.forceNullable(IntegerType, _)).map { t =>
-      MapType(t, sourceType.valueType, valueContainsNull = true)
-    }
-    val nonCastableTargetTypes = allTypes.filterNot(castableTypes.contains(_)).map {t =>
-      MapType(t, sourceType.valueType, valueContainsNull = true)
-    }
-
-    // Tests that its possible to setup implicit casts between two map types when
-    // source map's key type is integer and the target map's key type are either Byte, Short,
-    // Long, Double, Float, Decimal(38, 18) or String.
-    targetTypes.foreach { targetType =>
-      shouldCast(sourceType, targetType, targetType)
-    }
-
-    // Tests that its not possible to setup implicit casts between two map types when
-    // source map's key type is integer and the target map's key type are either Binary,
-    // Boolean, Date, Timestamp, Array, Struct, CalendarIntervalType or NullType
-    nonCastableTargetTypes.foreach { targetType =>
-      shouldNotCast(sourceType, targetType)
-    }
-
-    // Tests that its not possible to cast from nullable map type to not nullable map type.
-    val targetNotNullableTypes = allTypes.filterNot(_ == IntegerType).map { t =>
-      MapType(t, sourceType.valueType, valueContainsNull = false)
-    }
-    val sourceMapExprWithValueNull =
-      CreateMap(Seq(Literal.default(sourceType.keyType),
-        Literal.create(null, sourceType.valueType)))
-    targetNotNullableTypes.foreach { targetType =>
-      val castDefault =
-        TypeCoercion.implicitCast(sourceMapExprWithValueNull, targetType)
-      assert(castDefault.isEmpty,
-        s"Should not be able to cast $sourceType to $targetType, but got $castDefault")
-    }
   }
 
   test("implicit type cast - StructType().add(\"a1\", StringType)") {

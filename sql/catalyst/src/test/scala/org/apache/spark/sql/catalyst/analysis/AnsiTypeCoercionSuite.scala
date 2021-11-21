@@ -98,23 +98,6 @@ class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
     }
   }
 
-  test("implicit type cast - BinaryType") {
-    val checkedType = BinaryType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType))
-    shouldNotCast(checkedType, DecimalType)
-    shouldNotCast(checkedType, NumericType)
-    shouldNotCast(checkedType, IntegralType)
-  }
-
-  test("implicit type cast - BooleanType") {
-    val checkedType = BooleanType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType))
-    shouldNotCast(checkedType, DecimalType)
-    shouldNotCast(checkedType, NumericType)
-    shouldNotCast(checkedType, IntegralType)
-    shouldNotCast(checkedType, StringType)
-  }
-
   test("implicit type cast - unfoldable StringType") {
     val nonCastableTypes = allTypes.filterNot(_ == StringType)
     nonCastableTypes.foreach { dt =>
@@ -135,23 +118,6 @@ class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
     shouldCastStringLiteral(NumericType, DoubleType)
   }
 
-  test("implicit type cast - DateType") {
-    val checkedType = DateType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, TimestampType))
-    shouldNotCast(checkedType, DecimalType)
-    shouldNotCast(checkedType, NumericType)
-    shouldNotCast(checkedType, IntegralType)
-    shouldNotCast(checkedType, StringType)
-  }
-
-  test("implicit type cast - TimestampType") {
-    val checkedType = TimestampType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType))
-    shouldNotCast(checkedType, DecimalType)
-    shouldNotCast(checkedType, NumericType)
-    shouldNotCast(checkedType, IntegralType)
-  }
-
   test("implicit type cast - unfoldable ArrayType(StringType)") {
     val input = AttributeReference("a", ArrayType(StringType))()
     val nonCastableTypes = allTypes.filterNot(_ == StringType)
@@ -160,55 +126,6 @@ class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
     }
     assert(AnsiTypeCoercion.implicitCast(input, DecimalType).isEmpty)
     assert(AnsiTypeCoercion.implicitCast(input, NumericType).isEmpty)
-  }
-
-  test("implicit type cast - foldable arrayType(StringType)") {
-    val input = Literal(Array("1"))
-    assert(AnsiTypeCoercion.implicitCast(input, ArrayType(StringType)) == Some(input))
-    (numericTypes ++ datetimeTypes ++ Seq(BinaryType)).foreach { dt =>
-      assert(AnsiTypeCoercion.implicitCast(input, ArrayType(dt)) ==
-        Some(Cast(input, ArrayType(dt))))
-    }
-  }
-
-  test("implicit type cast between two Map types") {
-    val sourceType = MapType(IntegerType, IntegerType, true)
-    val castableTypes =
-      Seq(IntegerType, LongType, FloatType, DoubleType, DecimalType.SYSTEM_DEFAULT)
-    val targetTypes = castableTypes.map { t =>
-      MapType(t, sourceType.valueType, valueContainsNull = true)
-    }
-    val nonCastableTargetTypes = allTypes.filterNot(castableTypes.contains(_)).map {t =>
-      MapType(t, sourceType.valueType, valueContainsNull = true)
-    }
-
-    // Tests that its possible to setup implicit casts between two map types when
-    // source map's key type is integer and the target map's key type are either Byte, Short,
-    // Long, Double, Float, Decimal(38, 18) or String.
-    targetTypes.foreach { targetType =>
-      shouldCast(sourceType, targetType, targetType)
-    }
-
-    // Tests that its not possible to setup implicit casts between two map types when
-    // source map's key type is integer and the target map's key type are either Binary,
-    // Boolean, Date, Timestamp, Array, Struct, CalendarIntervalType or NullType
-    nonCastableTargetTypes.foreach { targetType =>
-      shouldNotCast(sourceType, targetType)
-    }
-
-    // Tests that its not possible to cast from nullable map type to not nullable map type.
-    val targetNotNullableTypes = allTypes.filterNot(_ == IntegerType).map { t =>
-      MapType(t, sourceType.valueType, valueContainsNull = false)
-    }
-    val sourceMapExprWithValueNull =
-      CreateMap(Seq(Literal.default(sourceType.keyType),
-        Literal.create(null, sourceType.valueType)))
-    targetNotNullableTypes.foreach { targetType =>
-      val castDefault =
-        AnsiTypeCoercion.implicitCast(sourceMapExprWithValueNull, targetType)
-      assert(castDefault.isEmpty,
-        s"Should not be able to cast $sourceType to $targetType, but got $castDefault")
-    }
   }
 
   test("implicit type cast - StructType().add(\"a1\", StringType)") {
@@ -229,7 +146,7 @@ class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
 
   test("implicit type cast - CalendarIntervalType") {
     val checkedType = CalendarIntervalType
-    checkTypeCasting(checkedType, castableTypes = Seq(checkedType))
+    checkTypeCasting(checkedType, castableTypes = Seq(checkedType, StringType))
     shouldNotCast(checkedType, DecimalType)
     shouldNotCast(checkedType, NumericType)
     shouldNotCast(checkedType, IntegralType)
@@ -267,15 +184,14 @@ class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
     shouldCast(ShortType, TypeCollection(DateType, LongType, IntegerType, DoubleType), IntegerType)
     // If the result is Float type and Double type is also among the convertible target types,
     // use Double Type instead of Float type.
-    shouldCast(LongType, TypeCollection(FloatType, DoubleType, StringType), DoubleType)
+    shouldCast(LongType, TypeCollection(FloatType, DoubleType, BinaryType), DoubleType)
+    // Spark can't determine the function invocation since String and Double doesn't have a closest
+    // common type.
+    shouldNotCast(LongType, TypeCollection(FloatType, DoubleType, StringType))
   }
 
   test("ineligible implicit type cast - TypeCollection") {
-    shouldNotCast(IntegerType, TypeCollection(StringType, BinaryType))
-    shouldNotCast(IntegerType, TypeCollection(BinaryType, StringType))
     shouldNotCast(IntegerType, TypeCollection(DateType, TimestampType))
-    shouldNotCast(IntegerType, TypeCollection(DecimalType(10, 2), StringType))
-    shouldNotCastStringInput(TypeCollection(NumericType, BinaryType))
     // When there are multiple convertible types in the `TypeCollection` and there is no such
     // a data type that can be implicit cast to all the other convertible types in the collection.
     Seq(TypeCollection(NumericType, BinaryType),
