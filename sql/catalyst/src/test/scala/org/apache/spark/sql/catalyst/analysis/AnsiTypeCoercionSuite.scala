@@ -24,7 +24,6 @@ import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.dsl.plans._
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.logical._
-import org.apache.spark.sql.catalyst.rules.{Rule, RuleExecutor}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
 
@@ -406,25 +405,6 @@ class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
       None)
   }
 
-  private def ruleTest(rule: Rule[LogicalPlan],
-      initial: Expression, transformed: Expression): Unit = {
-    ruleTest(Seq(rule), initial, transformed)
-  }
-
-  private def ruleTest(
-      rules: Seq[Rule[LogicalPlan]],
-      initial: Expression,
-      transformed: Expression): Unit = {
-    val testRelation = LocalRelation(AttributeReference("a", IntegerType)())
-    val analyzer = new RuleExecutor[LogicalPlan] {
-      override val batches = Seq(Batch("Resolution", FixedPoint(3), rules: _*))
-    }
-
-    comparePlans(
-      analyzer.execute(Project(Seq(Alias(initial, "a")()), testRelation)),
-      Project(Seq(Alias(transformed, "a")()), testRelation))
-  }
-
   test("cast NullType for expressions that implement ExpectsInputTypes") {
     ruleTest(AnsiTypeCoercion.ImplicitTypeCasts,
       AnyTypeUnaryExpression(Literal.create(null, NullType)),
@@ -798,90 +778,6 @@ class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
       Stack(Seq(Subtract(Literal(3), Literal(1)),
         Literal(1), Literal("2"),
         Literal.create(null, IntegerType), Literal.create(null, StringType))))
-  }
-
-  test("type coercion for Concat") {
-    val rule = AnsiTypeCoercion.ConcatCoercion
-
-    ruleTest(rule,
-      Concat(Seq(Literal("ab"), Literal("cde"))),
-      Concat(Seq(Literal("ab"), Literal("cde"))))
-    ruleTest(rule,
-      Concat(Seq(Literal(null), Literal("abc"))),
-      Concat(Seq(Cast(Literal(null), StringType), Literal("abc"))))
-    ruleTest(rule,
-      Concat(Seq(Literal(1), Literal("234"))),
-      Concat(Seq(Literal(1), Literal("234"))))
-    ruleTest(rule,
-      Concat(Seq(Literal("1"), Literal("234".getBytes()))),
-      Concat(Seq(Literal("1"), Literal("234".getBytes()))))
-    ruleTest(rule,
-      Concat(Seq(Literal(1L), Literal(2.toByte), Literal(0.1))),
-      Concat(Seq(Literal(1L), Literal(2.toByte), Literal(0.1))))
-    ruleTest(rule,
-      Concat(Seq(Literal(true), Literal(0.1f), Literal(3.toShort))),
-      Concat(Seq(Literal(true), Literal(0.1f), Literal(3.toShort))))
-    ruleTest(rule,
-      Concat(Seq(Literal(1L), Literal(0.1))),
-      Concat(Seq(Literal(1L), Literal(0.1))))
-    ruleTest(rule,
-      Concat(Seq(Literal(Decimal(10)))),
-      Concat(Seq(Literal(Decimal(10)))))
-    ruleTest(rule,
-      Concat(Seq(Literal(BigDecimal.valueOf(10)))),
-      Concat(Seq(Literal(BigDecimal.valueOf(10)))))
-    ruleTest(rule,
-      Concat(Seq(Literal(java.math.BigDecimal.valueOf(10)))),
-      Concat(Seq(Literal(java.math.BigDecimal.valueOf(10)))))
-    ruleTest(rule,
-      Concat(Seq(Literal(new java.sql.Date(0)), Literal(new Timestamp(0)))),
-      Concat(Seq(Literal(new java.sql.Date(0)), Literal(new Timestamp(0)))))
-
-    ruleTest(rule,
-      Concat(Seq(Literal("123".getBytes), Literal("456".getBytes))),
-      Concat(Seq(Literal("123".getBytes), Literal("456".getBytes))))
-  }
-
-  test("type coercion for Elt") {
-    val rule = AnsiTypeCoercion.EltCoercion
-
-    ruleTest(rule,
-      Elt(Seq(Literal(1), Literal("ab"), Literal("cde"))),
-      Elt(Seq(Literal(1), Literal("ab"), Literal("cde"))))
-    ruleTest(rule,
-      Elt(Seq(Literal(1.toShort), Literal("ab"), Literal("cde"))),
-      Elt(Seq(Cast(Literal(1.toShort), IntegerType), Literal("ab"), Literal("cde"))))
-    ruleTest(rule,
-      Elt(Seq(Literal(2), Literal(null), Literal("abc"))),
-      Elt(Seq(Literal(2), Cast(Literal(null), StringType), Literal("abc"))))
-    ruleTest(rule,
-      Elt(Seq(Literal(2), Literal(1), Literal("234"))),
-      Elt(Seq(Literal(2), Literal(1), Literal("234"))))
-    ruleTest(rule,
-      Elt(Seq(Literal(3), Literal(1L), Literal(2.toByte), Literal(0.1))),
-      Elt(Seq(Literal(3), Literal(1L), Literal(2.toByte), Literal(0.1))))
-    ruleTest(rule,
-      Elt(Seq(Literal(2), Literal(true), Literal(0.1f), Literal(3.toShort))),
-      Elt(Seq(Literal(2), Literal(true), Literal(0.1f), Literal(3.toShort))))
-    ruleTest(rule,
-      Elt(Seq(Literal(1), Literal(1L), Literal(0.1))),
-      Elt(Seq(Literal(1), Literal(1L), Literal(0.1))))
-    ruleTest(rule,
-      Elt(Seq(Literal(1), Literal(Decimal(10)))),
-      Elt(Seq(Literal(1), Literal(Decimal(10)))))
-    ruleTest(rule,
-      Elt(Seq(Literal(1), Literal(BigDecimal.valueOf(10)))),
-      Elt(Seq(Literal(1), Literal(BigDecimal.valueOf(10)))))
-    ruleTest(rule,
-      Elt(Seq(Literal(1), Literal(java.math.BigDecimal.valueOf(10)))),
-      Elt(Seq(Literal(1), Literal(java.math.BigDecimal.valueOf(10)))))
-    ruleTest(rule,
-      Elt(Seq(Literal(2), Literal(new java.sql.Date(0)), Literal(new Timestamp(0)))),
-      Elt(Seq(Literal(2), Literal(new java.sql.Date(0)), Literal(new Timestamp(0)))))
-
-    ruleTest(rule,
-      Elt(Seq(Literal(1), Literal("123".getBytes), Literal("456".getBytes))),
-      Elt(Seq(Literal(1), Literal("123".getBytes), Literal("456".getBytes))))
   }
 
   private def checkOutput(logical: LogicalPlan, expectTypes: Seq[DataType]): Unit = {
