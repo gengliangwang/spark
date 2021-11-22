@@ -240,6 +240,42 @@ abstract class TypeCoercionSuiteBase extends AnalysisTest {
     }
   }
 
+  test("eligible implicit type cast - TypeCollection") {
+    shouldCast(NullType, TypeCollection(StringType, BinaryType), StringType)
+
+    shouldCast(StringType, TypeCollection(StringType, BinaryType), StringType)
+    shouldCast(BinaryType, TypeCollection(StringType, BinaryType), BinaryType)
+    shouldCast(StringType, TypeCollection(BinaryType, StringType), StringType)
+
+    shouldCast(IntegerType, TypeCollection(IntegerType, BinaryType), IntegerType)
+    shouldCast(IntegerType, TypeCollection(BinaryType, IntegerType), IntegerType)
+    shouldCast(BinaryType, TypeCollection(BinaryType, IntegerType), BinaryType)
+    shouldCast(BinaryType, TypeCollection(IntegerType, BinaryType), BinaryType)
+
+    shouldCast(IntegerType, TypeCollection(StringType, BinaryType), StringType)
+    shouldCast(IntegerType, TypeCollection(BinaryType, StringType), StringType)
+
+    shouldCast(DecimalType.SYSTEM_DEFAULT,
+      TypeCollection(IntegerType, DecimalType), DecimalType.SYSTEM_DEFAULT)
+    shouldCast(DecimalType(10, 2), TypeCollection(IntegerType, DecimalType), DecimalType(10, 2))
+    shouldCast(DecimalType(10, 2), TypeCollection(DecimalType, IntegerType), DecimalType(10, 2))
+    shouldCast(IntegerType, TypeCollection(DecimalType(10, 2), StringType), DecimalType(10, 2))
+
+    shouldCast(
+      ArrayType(StringType, false),
+      TypeCollection(ArrayType(StringType), StringType),
+      ArrayType(StringType, false))
+
+    shouldCast(
+      ArrayType(StringType, true),
+      TypeCollection(ArrayType(StringType), StringType),
+      ArrayType(StringType, true))
+  }
+
+  test("ineligible implicit type cast - TypeCollection") {
+    shouldNotCast(IntegerType, TypeCollection(DateType, TimestampType))
+  }
+
   test("type coercion for Concat") {
     val rule = TypeCoercion.ConcatCoercion
 
@@ -447,42 +483,8 @@ class TypeCoercionSuite extends TypeCoercionSuiteBase {
     shouldNotCast(checkedType, IntegralType)
   }
 
-  test("eligible implicit type cast - TypeCollection") {
-    shouldCast(NullType, TypeCollection(StringType, BinaryType), StringType)
-
-    shouldCast(StringType, TypeCollection(StringType, BinaryType), StringType)
-    shouldCast(BinaryType, TypeCollection(StringType, BinaryType), BinaryType)
-    shouldCast(StringType, TypeCollection(BinaryType, StringType), StringType)
-
-    shouldCast(IntegerType, TypeCollection(IntegerType, BinaryType), IntegerType)
-    shouldCast(IntegerType, TypeCollection(BinaryType, IntegerType), IntegerType)
-    shouldCast(BinaryType, TypeCollection(BinaryType, IntegerType), BinaryType)
-    shouldCast(BinaryType, TypeCollection(IntegerType, BinaryType), BinaryType)
-
-    shouldCast(IntegerType, TypeCollection(StringType, BinaryType), StringType)
-    shouldCast(IntegerType, TypeCollection(BinaryType, StringType), StringType)
-
-    shouldCast(DecimalType.SYSTEM_DEFAULT,
-      TypeCollection(IntegerType, DecimalType), DecimalType.SYSTEM_DEFAULT)
-    shouldCast(DecimalType(10, 2), TypeCollection(IntegerType, DecimalType), DecimalType(10, 2))
-    shouldCast(DecimalType(10, 2), TypeCollection(DecimalType, IntegerType), DecimalType(10, 2))
-    shouldCast(IntegerType, TypeCollection(DecimalType(10, 2), StringType), DecimalType(10, 2))
-
+  test("eligible implicit type cast - TypeCollection II") {
     shouldCast(StringType, TypeCollection(NumericType, BinaryType), DoubleType)
-
-    shouldCast(
-      ArrayType(StringType, false),
-      TypeCollection(ArrayType(StringType), StringType),
-      ArrayType(StringType, false))
-
-    shouldCast(
-      ArrayType(StringType, true),
-      TypeCollection(ArrayType(StringType), StringType),
-      ArrayType(StringType, true))
-  }
-
-  test("ineligible implicit type cast - TypeCollection") {
-    shouldNotCast(IntegerType, TypeCollection(DateType, TimestampType))
   }
 
   test("tightest common bound for types") {

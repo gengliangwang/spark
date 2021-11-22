@@ -151,57 +151,6 @@ class AnsiTypeCoercionSuite extends TypeCoercionSuiteBase {
     shouldNotCast(checkedType, IntegralType)
   }
 
-  test("eligible implicit type cast - TypeCollection") {
-    shouldCast(StringType, TypeCollection(StringType, BinaryType), StringType)
-    shouldCast(BinaryType, TypeCollection(StringType, BinaryType), BinaryType)
-    shouldCast(StringType, TypeCollection(BinaryType, StringType), StringType)
-
-    shouldCast(IntegerType, TypeCollection(IntegerType, BinaryType), IntegerType)
-    shouldCast(IntegerType, TypeCollection(BinaryType, IntegerType), IntegerType)
-    shouldCast(BinaryType, TypeCollection(BinaryType, IntegerType), BinaryType)
-    shouldCast(BinaryType, TypeCollection(IntegerType, BinaryType), BinaryType)
-
-    shouldCast(DecimalType.SYSTEM_DEFAULT,
-      TypeCollection(IntegerType, DecimalType), DecimalType.SYSTEM_DEFAULT)
-    shouldCast(DecimalType(10, 2), TypeCollection(IntegerType, DecimalType), DecimalType(10, 2))
-    shouldCast(DecimalType(10, 2), TypeCollection(DecimalType, IntegerType), DecimalType(10, 2))
-
-    shouldCast(
-      ArrayType(StringType, false),
-      TypeCollection(ArrayType(StringType), StringType),
-      ArrayType(StringType, false))
-
-    shouldCast(
-      ArrayType(StringType, true),
-      TypeCollection(ArrayType(StringType), StringType),
-      ArrayType(StringType, true))
-
-    // When there are multiple convertible types in the `TypeCollection`, use the closest
-    // convertible data type among convertible types.
-    shouldCast(IntegerType, TypeCollection(BinaryType, FloatType, LongType), LongType)
-    shouldCast(ShortType, TypeCollection(BinaryType, LongType, IntegerType), IntegerType)
-    shouldCast(ShortType, TypeCollection(DateType, LongType, IntegerType, DoubleType), IntegerType)
-    // If the result is Float type and Double type is also among the convertible target types,
-    // use Double Type instead of Float type.
-    shouldCast(LongType, TypeCollection(FloatType, DoubleType, BinaryType), DoubleType)
-    // Spark can't determine the function invocation since String and Double doesn't have a closest
-    // common type.
-    shouldNotCast(LongType, TypeCollection(FloatType, DoubleType, StringType))
-  }
-
-  test("ineligible implicit type cast - TypeCollection") {
-    shouldNotCast(IntegerType, TypeCollection(DateType, TimestampType))
-    // When there are multiple convertible types in the `TypeCollection` and there is no such
-    // a data type that can be implicit cast to all the other convertible types in the collection.
-    Seq(TypeCollection(NumericType, BinaryType),
-      TypeCollection(NumericType, DecimalType, BinaryType),
-      TypeCollection(IntegerType, LongType, BooleanType),
-      TypeCollection(DateType, TimestampType, BooleanType)).foreach { typeCollection =>
-      shouldNotCastStringLiteral(typeCollection)
-      shouldNotCast(NullType, typeCollection)
-    }
-  }
-
   test("tightest common bound for types") {
     def widenTest(t1: DataType, t2: DataType, expected: Option[DataType]): Unit =
       checkWidenType(AnsiTypeCoercion.findTightestCommonType, t1, t2, expected)

@@ -211,17 +211,9 @@ object AnsiTypeCoercion extends TypeCoercionBase {
         }
 
       // When we reach here, input type is not acceptable for any types in this type collection,
-      // first try to find the all the expected types we can implicitly cast:
-      //   1. if there is no convertible data types, return None;
-      //   2. if there is only one convertible data type, cast input as it;
-      //   3. otherwise if there are multiple convertible data types, find the closet convertible
-      //      data type among them. If there is no such a data type, return None.
+      // try to find the first one we can implicitly cast.
       case (_, TypeCollection(types)) =>
-        // Since Spark contains special objects like `NumericType` and `DecimalType`, which accepts
-        // multiple types and they are `AbstractDataType` instead of `DataType`, here we use the
-        // conversion result their representation.
-        val convertibleTypes = types.flatMap(implicitCast(inType, _, isInputFoldable))
-        findClosestDataType(convertibleTypes)
+        types.flatMap(implicitCast(inType, _, isInputFoldable)).headOption
 
       case _ => None
     }
