@@ -247,7 +247,7 @@ object QueryCompilationErrors {
       v: ResolvedView, cmd: String, mismatchHint: Option[String], t: TreeNode[_]): Throwable = {
     val viewStr = if (v.isTemp) "temp view" else "view"
     val hintStr = mismatchHint.map(" " + _).getOrElse("")
-    new AnalysisException(s"${v.identifier.quoted} is a $viewStr. '$cmd' expects a table.$hintStr",
+    new AnalysisException(s"${v.name} is a $viewStr. '$cmd' expects a table.$hintStr",
       t.origin.line, t.origin.startPosition)
   }
 

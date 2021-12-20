@@ -21,6 +21,7 @@ import org.apache.spark.SparkException
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.parser.ParseException
+import org.apache.spark.sql.connector.catalog.CatalogManager
 import org.apache.spark.sql.internal.SQLConf._
 import org.apache.spark.sql.test.{SharedSparkSession, SQLTestUtils}
 
@@ -245,7 +246,8 @@ abstract class SQLViewSuite extends QueryTest with SQLTestUtils {
       e = intercept[AnalysisException] {
         sql(s"""LOAD DATA LOCAL INPATH "$dataFilePath" INTO TABLE $viewName""")
       }.getMessage
-      assert(e.contains("default.testView is a view. 'LOAD DATA' expects a table"))
+      assert(e.contains(s"${CatalogManager.SESSION_CATALOG_NAME}.default.testView is a view. " +
+        s"'LOAD DATA' expects a table"))
     }
   }
 

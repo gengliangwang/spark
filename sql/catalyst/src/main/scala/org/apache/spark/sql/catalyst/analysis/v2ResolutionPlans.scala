@@ -190,6 +190,12 @@ case class ResolvedView(
     identifier: Identifier,
     isTemp: Boolean) extends LeafNode {
   override def output: Seq[Attribute] = Nil
+
+  def name: String = if (isTemp) {
+    identifier.quoted
+  } else {
+    (catalog.name +: identifier.namespace() :+ identifier.name()).quoted
+  }
 }
 
 /**
