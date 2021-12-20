@@ -1127,14 +1127,14 @@ class Analyzer(override val catalogManager: CatalogManager)
      */
     private def lookupTableOrView(identifier: Seq[String]): Option[LogicalPlan] = {
       lookupTempView(identifier).map { _ =>
-        ResolvedView(identifier.asIdentifier, isTemp = true)
+        ResolvedView(catalogManager.v2SessionCatalog, identifier.asIdentifier, isTemp = true)
       }.orElse {
         expandIdentifier(identifier) match {
           case CatalogAndIdentifier(catalog, ident) =>
             CatalogV2Util.loadTable(catalog, ident).map {
               case v1Table: V1Table if CatalogV2Util.isSessionCatalog(catalog) &&
                 v1Table.v1Table.tableType == CatalogTableType.VIEW =>
-                ResolvedView(ident, isTemp = false)
+                ResolvedView(catalogManager.v2SessionCatalog, ident, isTemp = false)
               case table =>
                 ResolvedTable.create(catalog.asTableCatalog, ident, table)
             }

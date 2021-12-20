@@ -101,10 +101,10 @@ class ResolveSessionCatalog(val catalogManager: CatalogManager)
     case UnsetTableProperties(ResolvedV1TableIdentifier(ident), keys, ifExists) =>
       AlterTableUnsetPropertiesCommand(ident.asTableIdentifier, keys, ifExists, isView = false)
 
-    case SetViewProperties(ResolvedView(ident, _), props) =>
+    case SetViewProperties(ResolvedView(_, ident, _), props) =>
       AlterTableSetPropertiesCommand(ident.asTableIdentifier, props, isView = true)
 
-    case UnsetViewProperties(ResolvedView(ident, _), keys, ifExists) =>
+    case UnsetViewProperties(ResolvedView(_, ident, _), keys, ifExists) =>
       AlterTableUnsetPropertiesCommand(ident.asTableIdentifier, keys, ifExists, isView = true)
 
     case DescribeNamespace(DatabaseInSessionCatalog(db), extended, output) if conf.useV1Command =>
@@ -345,7 +345,7 @@ class ResolveSessionCatalog(val catalogManager: CatalogManager)
     case SetTableLocation(ResolvedV1TableIdentifier(ident), partitionSpec, location) =>
       AlterTableSetLocationCommand(ident.asTableIdentifier, partitionSpec, location)
 
-    case AlterViewAs(ResolvedView(ident, _), originalText, query) =>
+    case AlterViewAs(ResolvedView(_, ident, _), originalText, query) =>
       AlterViewAsCommand(
         ident.asTableIdentifier,
         originalText,
@@ -543,7 +543,7 @@ class ResolveSessionCatalog(val catalogManager: CatalogManager)
 
   object ResolvedViewIdentifier {
     def unapply(resolved: LogicalPlan): Option[Identifier] = resolved match {
-      case ResolvedView(ident, _) => Some(ident)
+      case ResolvedView(_, ident, _) => Some(ident)
       case _ => None
     }
   }
