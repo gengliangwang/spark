@@ -507,7 +507,10 @@ case class ResolveDefaultColumns(
     // Check if the target table is already resolved. If so, return the computed schema.
     // Note that we use 'collectFirst' to descend past any SubqueryAlias nodes that may be present.
     val source: Option[LogicalPlan] = table.collectFirst {
-      case r: NamedRelation => r
+      case r: NamedRelation if !r.skipSchemaResolution =>
+        // Here we only resolve the default columns in the tables that requires schema resolution
+        // in write.
+        r
       case r: UnresolvedCatalogRelation => r
     }
     source.map { r =>
@@ -523,25 +526,11 @@ case class ResolveDefaultColumns(
       case Some(r: UnresolvedCatalogRelation) => r.tableMeta.identifier
       case _ => return None
     }
-    // Check if the target table has "ACCEPT_ANY_SCHEMA" capabilities and if so,
-    // don't do anything.
+
     val lookup: LogicalPlan = try {
-      source match {
-        case Some(DataSourceV2Relation(_, _, tableCatalog: TableCatalog, _, _)) =>
-          val id = Identifier.of(Array.empty[String], tableName.identifier)
-          val capabilities = tableCatalog.loadTable(id).capabilities
-          val it = capabilities.iterator()
-          while (it.hasNext()) {
-            if (it.next() == TableCapability.ACCEPT_ANY_SCHEMA) {
-              return None
-            }
-          }
-        case _ =>
-      }
       catalog.lookupRelation(tableName)
     } catch {
-      case e: AnalysisException =>
-        return None
+      case _: AnalysisException => return None
     }
     lookup match {
       case SubqueryAlias(_, r: UnresolvedCatalogRelation) =>
