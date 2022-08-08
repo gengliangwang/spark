@@ -69,16 +69,9 @@ class UnivocityParser(
   private val tokenIndexArr =
     requiredSchema.map(f => java.lang.Integer.valueOf(dataSchema.indexOf(f))).toArray
 
-  // True if we should inform the Univocity CSV parser to select which fields to read by their
-  // positions. Generally assigned by input configuration options, except when input column(s) have
-  // default values, in which case we omit the explicit indexes in order to know how many tokens
-  // were present in each line instead.
-  private def columnPruning: Boolean = options.columnPruning &&
-    !requiredSchema.exists(_.metadata.contains(EXISTS_DEFAULT_COLUMN_METADATA_KEY))
-
   // When column pruning is enabled, the parser only parses the required columns based on
   // their positions in the data schema.
-  private val parsedSchema = if (columnPruning) requiredSchema else dataSchema
+  private val parsedSchema = if (options.columnPruning) requiredSchema else dataSchema
 
   val tokenizer: CsvParser = {
     val parserSetting = options.asParserSettings
@@ -305,7 +298,7 @@ class UnivocityParser(
    */
   val parse: String => Option[InternalRow] = {
     // This is intentionally a val to create a function once and reuse.
-    if (columnPruning && requiredSchema.isEmpty) {
+    if (options.columnPruning && requiredSchema.isEmpty) {
       // If `columnPruning` enabled and partition attributes scanned only,
       // `schema` gets empty.
       (_: String) => Some(InternalRow.empty)
@@ -315,7 +308,7 @@ class UnivocityParser(
     }
   }
 
-  private val getToken = if (columnPruning) {
+  private val getToken = if (options.columnPruning) {
     (tokens: Array[String], index: Int) => tokens(index)
   } else {
     (tokens: Array[String], index: Int) => tokens(tokenIndexArr(index))
@@ -357,8 +350,7 @@ class UnivocityParser(
         case e: SparkUpgradeException => throw e
         case NonFatal(e) =>
           badRecordException = badRecordException.orElse(Some(e))
-          // Use the corresponding DEFAULT value associated with the column, if any.
-          row.update(i, requiredSchema.defaultValues(i))
+          row.setNullAt(i)
       }
       i += 1
     }
