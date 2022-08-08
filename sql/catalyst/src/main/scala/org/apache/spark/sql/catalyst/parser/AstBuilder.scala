@@ -2812,6 +2812,8 @@ class AstBuilder extends SqlBaseParserBaseVisitor[AnyRef] with SQLConfHelper wit
         // Add default to metadata
         builder.putString(ResolveDefaultColumns.CURRENT_DEFAULT_COLUMN_METADATA_KEY, field)
         builder.putString(ResolveDefaultColumns.EXISTS_DEFAULT_COLUMN_METADATA_KEY, field)
+        builder.putLong(ResolveDefaultColumns.EXISTS_DEFAULT_COLUMN_CREATION_TIME,
+          DateTimeUtils.currentTimestamp())
       } else {
         throw QueryParsingErrors.defaultColumnNotEnabledError(ctx)
       }

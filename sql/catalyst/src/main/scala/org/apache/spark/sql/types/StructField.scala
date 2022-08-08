@@ -140,6 +140,17 @@ case class StructField(
     }
   }
 
+  /**
+   * Return the creation time of the existence default value of this StructField.
+   */
+  private[sql] def getExistenceDefaultCreationTime(): Option[Long] = {
+    if (metadata.contains(EXISTS_DEFAULT_COLUMN_CREATION_TIME)) {
+      Option(metadata.getLong(EXISTS_DEFAULT_COLUMN_CREATION_TIME))
+    } else {
+      None
+    }
+  }
+
   private def getDDLComment = getComment()
     .map(escapeSingleQuotedString)
     .map(" COMMENT '" + _ + "'")

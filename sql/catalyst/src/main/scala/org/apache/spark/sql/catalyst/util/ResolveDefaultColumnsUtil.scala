@@ -17,6 +17,8 @@
 
 package org.apache.spark.sql.catalyst.util
 
+import scala.collection.mutable.ArrayBuffer
+
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis._
@@ -61,6 +63,8 @@ object ResolveDefaultColumns {
   // corresponding DEFAULT value instead. We choose option (2) for efficiency, and represent this
   // value as the text representation of a folded constant in the "EXISTS_DEFAULT" column metadata.
   val EXISTS_DEFAULT_COLUMN_METADATA_KEY = "EXISTS_DEFAULT"
+
+  val EXISTS_DEFAULT_COLUMN_CREATION_TIME = "EXISTS_DEFAULT_TIMESTAMP"
   // Name of attributes representing explicit references to the value stored in the above
   // CURRENT_DEFAULT_COLUMN_METADATA.
   val CURRENT_DEFAULT_COLUMN_NAME = "DEFAULT"
@@ -123,7 +127,10 @@ object ResolveDefaultColumns {
           }
           val analyzed: Expression = analyze(field, statementType)
           val newMetadata: Metadata = new MetadataBuilder().withMetadata(field.metadata)
-            .putString(EXISTS_DEFAULT_COLUMN_METADATA_KEY, analyzed.sql).build()
+            .putString(EXISTS_DEFAULT_COLUMN_METADATA_KEY, analyzed.sql)
+            .putLong(ResolveDefaultColumns.EXISTS_DEFAULT_COLUMN_CREATION_TIME,
+              DateTimeUtils.currentTimestamp() / DateTimeConstants.MICROS_PER_MILLIS)
+            .build()
           field.copy(metadata = newMetadata)
         } else {
           field
@@ -244,6 +251,11 @@ object ResolveDefaultColumns {
     Array.fill[Boolean](schema.existenceDefaultValues.size)(true)
   }
 
+  def getExistenceDefaultsModificationTime(schema: StructType): Array[Long] = {
+    schema.fields.map { field: StructField =>
+      field.getExistenceDefaultCreationTime().getOrElse(Long.MinValue)
+    }
+  }
   /**
    * Resets the elements of the array initially returned from [[getExistenceDefaultsBitmask]] above.
    * Afterwards, set element(s) to false before calling [[applyExistenceDefaultValuesToRow]] below.
@@ -251,6 +263,13 @@ object ResolveDefaultColumns {
   def resetExistenceDefaultsBitmask(schema: StructType): Unit = {
     for (i <- 0 until schema.existenceDefaultValues.size) {
       schema.existenceDefaultsBitmask(i) = (schema.existenceDefaultValues(i) != null)
+    }
+  }
+
+  def resetExistenceDefaultsBitmask(schema: StructType, modificationTime: Long): Unit = {
+    for (i <- 0 until schema.existenceDefaultValues.size) {
+      schema.existenceDefaultsBitmask(i) = schema.existenceDefaultValues(i) != null &&
+        schema.existenceDefaultsModificationTime(i) > modificationTime
     }
   }
 
@@ -264,6 +283,24 @@ object ResolveDefaultColumns {
           row.update(i, schema.existenceDefaultValues(i))
         }
       }
+    }
+  }
+
+  def applyExistenceDefaultValuesToRowNew(schema: StructType, row: InternalRow): InternalRow = {
+    if (schema.hasExistenceDefaultValues) {
+      val exprs = new ArrayBuffer[Expression]()
+      for (i <- 0 until schema.existenceDefaultValues.size) {
+        val field = schema.fields(i)
+        if (schema.existenceDefaultsBitmask(i)) {
+          val literal = Literal.create(schema.existenceDefaultValues(i), field.dataType)
+          exprs.append(Alias(literal, field.name)())
+        } else {
+          exprs.append(BoundReference(i, field.dataType, field.nullable))
+        }
+      }
+      UnsafeProjection.create(exprs).apply(row)
+    } else {
+      row
     }
   }
 

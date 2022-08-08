@@ -30,6 +30,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.{FileSourceOptions, InternalRow}
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, GenericInternalRow, JoinedRow, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
+import org.apache.spark.sql.catalyst.util.ResolveDefaultColumns.{applyExistenceDefaultValuesToRowNew, resetExistenceDefaultsBitmask}
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.datasources.FileFormat._
 import org.apache.spark.sql.execution.vectorized.ConstantColumnVector
@@ -136,11 +137,16 @@ class FileScanRDD(
        * For each partitioned file, metadata columns for each record in the file are exactly same.
        * Only update metadata row when `currentFile` is changed.
        */
-      private def updateMetadataRow(): Unit =
+      private def updateMetadataRow(): Unit = {
         if (metadataColumns.nonEmpty && currentFile != null) {
           updateMetadataInternalRow(metadataRow, metadataColumns.map(_.name),
             new Path(currentFile.filePath), currentFile.fileSize, currentFile.modificationTime)
         }
+
+        if (currentFile != null) {
+          resetExistenceDefaultsBitmask(readSchema, currentFile.modificationTime)
+        }
+      }
 
       /**
        * Create an array of constant column vectors containing all required metadata columns
@@ -203,7 +209,12 @@ class FileScanRDD(
             }
             inputMetrics.incRecordsRead(1)
         }
-        addMetadataColumnsIfNeeded(nextElement)
+        val nextElementWithDefaultValue = nextElement match {
+          case u: UnsafeRow => applyExistenceDefaultValuesToRowNew(readSchema, u)
+          case i: InternalRow => applyExistenceDefaultValuesToRowNew(readSchema, i)
+          case _ => nextElement
+        }
+        addMetadataColumnsIfNeeded(nextElementWithDefaultValue)
       }
 
       private def readCurrentFile(): Iterator[InternalRow] = {

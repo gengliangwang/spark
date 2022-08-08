@@ -518,6 +518,8 @@ case class StructType(fields: Array[StructField]) extends DataType with Seq[Stru
    */
   private[sql] lazy val existenceDefaultValues: Array[Any] = getExistenceDefaultValues(this)
   private[sql] lazy val existenceDefaultsBitmask: Array[Boolean] = getExistenceDefaultsBitmask(this)
+  private[sql] lazy val existenceDefaultsModificationTime: Array[Long] =
+    getExistenceDefaultsModificationTime(this)
   private[sql] lazy val hasExistenceDefaultValues = existenceDefaultValues.exists(_ != null)
 }
 
