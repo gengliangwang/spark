@@ -1515,53 +1515,54 @@ class InsertSuite extends DataSourceTest with SharedSparkSession {
     }
   }
 
-  test("INSERT rows, ALTER TABLE ADD COLUMNS with DEFAULTs, then SELECT them") {
-    case class Config(
-        sqlConf: Option[(String, String)],
-        insertNullsToStorage: Boolean = true)
-    def runTest(dataSource: String, config: Config): Unit = {
-      def withTableT(f: => Unit): Unit = {
-        sql(s"create table t(a string, i int) using $dataSource")
-        sql("insert into t values('xyz', 42)")
-        withTable("t") { f }
-      }
-      // Positive tests:
+  test("INSERT rows, ALTER TABLE ADD COLUMNS with DEFAULTs, then SELECT them: Positive tests") {
+    def runTest(dataSource: String): Unit = {
+      val createTableIntCol = s"create table t(a string, i int) using $dataSource"
       // Adding a column with a valid default value into a table containing existing data works
       // successfully. Querying data from the altered table returns the new value.
-      withTableT {
+      withTable("t") {
+        sql(createTableIntCol)
+        sql("insert into t values('xyz', 42)")
         sql("alter table t add column (s string default concat('abc', 'def'))")
         checkAnswer(spark.table("t"), Row("xyz", 42, "abcdef"))
         checkAnswer(sql("select i, s from t"), Row(42, "abcdef"))
-        // Now alter the column to change the default value. This still returns the previous value,
-        // not the new value, since the behavior semantics are the same as if the first command had
-        // performed a backfill of the new default value in the existing rows.
+      }
+      // Same as above, but a following command alters the column to change the default value.
+      // This returns the previous value, not the new value, since the behavior semantics are
+      // the same as if the first command had performed a backfill of the new default value in
+      // the existing rows.
+      withTable("t") {
+        sql(createTableIntCol)
+        sql("insert into t values('xyz', 42)")
+        sql("alter table t add column (s string default concat('abc', 'def'))")
         sql("alter table t alter column s set default concat('ghi', 'jkl')")
+        checkAnswer(spark.table("t"), Row("xyz", 42, "abcdef"))
         checkAnswer(sql("select i, s from t"), Row(42, "abcdef"))
       }
       // Adding a column with a default value and then inserting explicit NULL values works.
       // Querying data back from the table differentiates between the explicit NULL values and
       // default values.
-      withTableT {
+      withTable("t") {
+        sql(createTableIntCol)
+        sql("insert into t values('xyz', 42)")
         sql("alter table t add column (s string default concat('abc', 'def'))")
         sql("insert into t values(null, null, null)")
         sql("alter table t add column (x boolean default true)")
-        // By default, INSERT commands into some tables (such as JSON) do not store NULL values.
-        // Therefore, if such destination columns have DEFAULT values, SELECTing the same columns
-        // will return the default values (instead of NULL) since nothing is present in storage.
-        val insertedSColumn = if (config.insertNullsToStorage) null else "abcdef"
         checkAnswer(spark.table("t"),
           Seq(
             Row("xyz", 42, "abcdef", true),
-            Row(null, null, insertedSColumn, true)))
+            Row(null, null, null, true)))
         checkAnswer(sql("select i, s, x from t"),
           Seq(
             Row(42, "abcdef", true),
-            Row(null, insertedSColumn, true)))
+            Row(null, null, true)))
       }
       // Adding two columns where only the first has a valid default value works successfully.
       // Querying data from the altered table returns the default value as well as NULL for the
       // second column.
-      withTableT {
+      withTable("t") {
+        sql(createTableIntCol)
+        sql("insert into t values('xyz', 42)")
         sql("alter table t add column (s string default concat('abc', 'def'))")
         sql("alter table t add column (x string)")
         checkAnswer(spark.table("t"), Row("xyz", 42, "abcdef", null))
@@ -1607,20 +1608,15 @@ class InsertSuite extends DataSourceTest with SharedSparkSession {
     }
 
     // This represents one test configuration over a data source.
-    case class TestCase(
-        dataSource: String,
-        configs: Seq[Config])
+    case class Config(
+      dataSource: String,
+      sqlConf: Seq[Option[(String, String)]] = Seq())
     // Run the test several times using each configuration.
     Seq(
-      TestCase(
-        dataSource = "csv",
+      Config(dataSource = "json",
         Seq(
-          Config(
-            None),
-          Config(
-            Some(SQLConf.CSV_PARSER_COLUMN_PRUNING.key -> "false")))),
-      TestCase(
-        dataSource = "json",
+          Some(SQLConf.JSON_GENERATOR_IGNORE_NULL_FIELDS.key -> "false"))),
+      Config(dataSource = "csv",
         Seq(
           Config(
             None,
@@ -1647,11 +1643,11 @@ class InsertSuite extends DataSourceTest with SharedSparkSession {
         config.sqlConf.map { kv: (String, String) =>
           withSQLConf(kv) {
             // Run the test with the pair of custom SQLConf values.
-            runTest(testCase.dataSource, config)
+            runTest(config.dataSource)
           }
         }.getOrElse {
           // Run the test with default settings.
-          runTest(testCase.dataSource, config)
+          runTest(config.dataSource)
         }
       }
     }
