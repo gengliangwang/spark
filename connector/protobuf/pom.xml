@@ -28,7 +28,6 @@
   <artifactId>spark-protobuf_2.12</artifactId>
   <properties>
     <sbt.project.name>protobuf</sbt.project.name>
-    <protobuf.version>3.21.9</protobuf.version>
   </properties>
   <packaging>jar</packaging>
   <name>Spark Protobuf</name>
@@ -77,39 +76,11 @@
       <artifactId>scala-parallel-collections_${scala.binary.version}</artifactId>
     </dependency>
     --><!-- #endif scala-2.13 -->
-    <dependency>
-      <groupId>com.google.protobuf</groupId>
-      <artifactId>protobuf-java</artifactId>
-      <version>${protobuf.version}</version>
-      <scope>compile</scope>
-    </dependency>
   </dependencies>
   <build>
     <outputDirectory>target/scala-${scala.binary.version}/classes</outputDirectory>
     <testOutputDirectory>target/scala-${scala.binary.version}/test-classes</testOutputDirectory>
     <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <configuration>
-          <shadedArtifactAttached>false</shadedArtifactAttached>
-          <shadeTestJar>true</shadeTestJar>
-          <artifactSet>
-            <includes>
-              <include>com.google.protobuf:*</include>
-            </includes>
-          </artifactSet>
-          <relocations>
-            <relocation>
-              <pattern>com.google.protobuf</pattern>
-              <shadedPattern>${spark.shade.packageName}.spark-protobuf.protobuf</shadedPattern>
-              <includes>
-                <include>com.google.protobuf.**</include>
-              </includes>
-            </relocation>
-          </relocations>
-        </configuration>
-      </plugin>
       <plugin>
         <groupId>com.github.os72</groupId>
         <artifactId>protoc-jar-maven-plugin</artifactId>

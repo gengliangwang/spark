@@ -32,7 +32,6 @@
   <url>https://spark.apache.org/</url>
   <properties>
     <sbt.project.name>connect</sbt.project.name>
-    <protobuf.version>3.21.1</protobuf.version>
     <guava.version>31.0.1-jre</guava.version>
     <guava.failureaccess.version>1.0.1</guava.failureaccess.version>
     <io.grpc.version>1.47.0</io.grpc.version>
@@ -125,12 +124,6 @@
       <groupId>com.google.guava</groupId>
       <artifactId>failureaccess</artifactId>
       <version>${guava.failureaccess.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>com.google.protobuf</groupId>
-      <artifactId>protobuf-java</artifactId>
-      <version>${protobuf.version}</version>
-      <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>io.grpc</groupId>
@@ -261,7 +254,6 @@
             <includes>
               <include>com.google.guava:*</include>
               <include>io.grpc:*:</include>
-              <include>com.google.protobuf:*</include>
 
               <!--
                 The dependencies below are not added in SBT because SBT add them all
@@ -290,13 +282,6 @@
               <shadedPattern>${spark.shade.packageName}.connect.guava</shadedPattern>
               <includes>
                 <include>com.google.thirdparty.**</include>
-              </includes>
-            </relocation>
-            <relocation>
-              <pattern>com.google.protobuf</pattern>
-              <shadedPattern>${spark.shade.packageName}.connect.protobuf</shadedPattern>
-              <includes>
-                <include>com.google.protobuf.**</include>
               </includes>
             </relocation>
             <relocation>
