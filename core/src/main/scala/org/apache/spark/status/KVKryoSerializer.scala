@@ -57,7 +57,7 @@ class KVKryoSerializer(conf: SparkConf) extends KVStoreSerializer {
 }
 
 object KVKryoSerializer {
-  val uiClasses = Seq(
+  private val uiClasses = Seq(
     classOf[JobData],
     classOf[JobDataWrapper],
     classOf[AccumulableInfo],
