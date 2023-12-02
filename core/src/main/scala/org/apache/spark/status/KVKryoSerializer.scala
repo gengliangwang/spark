@@ -19,21 +19,20 @@ package org.apache.spark.status
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 
 import com.esotericsoftware.kryo.io.{Input, Output}
+import com.twitter.chill.EmptyScalaKryoInstantiator
 
-import org.apache.spark.SparkConf
 import org.apache.spark.executor.ExecutorMetrics
 import org.apache.spark.resource.{ExecutorResourceRequest, ResourceInformation, TaskResourceRequest}
 import org.apache.spark.scheduler.AccumulableInfo
-import org.apache.spark.serializer.KryoSerializer
 import org.apache.spark.status.api.v1._
 import org.apache.spark.ui.scope.{RDDOperationEdge, RDDOperationNode}
 import org.apache.spark.util.kvstore.KVStoreSerializer
 
 
-class KVKryoSerializer(conf: SparkConf) extends KVStoreSerializer {
+class KVKryoSerializer() extends KVStoreSerializer {
   private val kryo = {
-    val kryoSerializer = new KryoSerializer(conf)
-    val _kryo = kryoSerializer.newKryo()
+    val instantiator = new EmptyScalaKryoInstantiator
+    val _kryo = instantiator.newKryo()
     _kryo.setRegistrationRequired(false)
     KVKryoSerializer.uiClasses.foreach(_kryo.register)
     _kryo

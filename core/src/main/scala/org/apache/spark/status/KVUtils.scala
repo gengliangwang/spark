@@ -60,7 +60,7 @@ private[spark] object KVUtils extends Logging {
     if (live) {
       // For the disk-based KV store of live UI, let's simply use protobuf serializer only.
       // The default serializer is slow since it is using JSON+GZip encoding.
-      new KVKryoSerializer(conf)
+      new KVKryoSerializer()
     } else {
       serializerForHistoryServer(conf)
     }
