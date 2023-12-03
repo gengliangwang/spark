@@ -17,7 +17,9 @@
 package org.apache.spark.status
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
+import java.util.UUID
 
+import com.esotericsoftware.kryo.{Kryo, Serializer}
 import com.esotericsoftware.kryo.io.{Input, Output}
 import com.twitter.chill.EmptyScalaKryoInstantiator
 
@@ -35,6 +37,7 @@ class KVKryoSerializer() extends KVStoreSerializer {
     val _kryo = instantiator.newKryo()
     _kryo.setRegistrationRequired(false)
     KVKryoSerializer.uiClasses.foreach(_kryo.register)
+    _kryo.register(classOf[UUID], new UUIDSerializer())
     _kryo
   }
 
@@ -112,4 +115,15 @@ object KVKryoSerializer {
     classOf[AppSummary],
     classOf[PoolData]
   )
+}
+
+class UUIDSerializer extends Serializer[UUID] {
+  override def write(kryo: Kryo, output: Output, uuid: UUID): Unit = {
+    output.writeLong(uuid.getMostSignificantBits)
+    output.writeLong(uuid.getLeastSignificantBits)
+  }
+
+  override def read(kryo: Kryo, input: Input, clazz: Class[UUID]): UUID = {
+    new UUID(input.readLong(), input.readLong())
+  }
 }
