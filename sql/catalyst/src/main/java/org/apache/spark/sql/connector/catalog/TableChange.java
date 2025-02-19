@@ -261,6 +261,20 @@ public interface TableChange {
   }
 
   /**
+   * Create a TableChange for adding a new Table Constraint
+   */
+  static TableChange addConstraint(Constraint constraint, Boolean validate) {
+    return new AddConstraint(constraint, validate);
+  }
+
+  /**
+   * Create a TableChange for dropping a Table Constraint
+   */
+  static TableChange dropConstraint(String name, Boolean ifExists, String mode) {
+    return new DropConstraint(name, ifExists, mode);
+  }
+
+  /**
    * A TableChange to set a table property.
    * <p>
    * If the property already exists, it must be replaced with the new value.
@@ -785,6 +799,77 @@ public interface TableChange {
     @Override
     public int hashCode() {
       return Arrays.hashCode(clusteringColumns);
+    }
+  }
+
+  /** A TableChange to alter table and add a constraint. */
+  final class AddConstraint implements TableChange {
+    private final Constraint constraint;
+    private final boolean validate;
+
+    private AddConstraint(Constraint constraint, boolean validate) {
+      this.constraint = constraint;
+      this.validate = validate;
+    }
+
+    public Constraint getConstraint() {
+      return constraint;
+    }
+
+    public boolean isValidate() {
+      return validate;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      AddConstraint that = (AddConstraint) o;
+      return constraint.equals(that.constraint) && validate == that.validate;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(constraint, validate);
+    }
+  }
+
+  enum DropConstraintMode { RESTRICT, CASCADE }
+
+  /** A TableChange to alter table and drop a constraint. */
+  final class DropConstraint implements TableChange {
+    private final String name;
+    private final boolean ifExists;
+    private final DropConstraintMode mode;
+
+    private DropConstraint(String name, boolean ifExists, String mode) {
+      this.name = name;
+      this.ifExists = ifExists;
+      this.mode = DropConstraintMode.valueOf(mode);
+    }
+
+    public String getName() {
+      return name;
+    }
+
+    public boolean isIfExists() {
+      return ifExists;
+    }
+
+    public DropConstraintMode getMode() {
+      return mode;
+    }
+
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      DropConstraint that = (DropConstraint) o;
+      return that.name.equals(name) && that.ifExists == ifExists && mode == that.mode;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(name, ifExists, mode);
     }
   }
 }
