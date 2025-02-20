@@ -1190,6 +1190,28 @@ trait CheckAnalysis extends LookupCatalog with QueryErrorsBase with PlanToString
             }
           case _ =>
         }
+
+      case addConstraint @ AlterTableAddConstraint(table: ResolvedTable, name, constraintExpr) =>
+        if (!constraintExpr.resolved) {
+          alter.failAnalysis(
+            errorClass = "NOT_SUPPORTED_TABLE_CONSTRAINT.UNRESOLVED",
+            messageParameters = Map("expression" -> constraintExpr.toString)
+          )
+        }
+
+        if (!constraintExpr.deterministic) {
+          alter.failAnalysis(
+            errorClass = "NOT_SUPPORTED_TABLE_CONSTRAINT.NONDETERMINISTIC",
+            messageParameters = Map("expression" -> constraintExpr.toString)
+          )
+        }
+
+        if (addConstraint.predicate.isEmpty) {
+          alter.failAnalysis(
+            errorClass = "NOT_SUPPORTED_TABLE_CONSTRAINT.INVALID_V2_PREDICATE",
+            messageParameters = Map("expression" -> constraintExpr.toString)
+          )
+        }
       case _ =>
     }
   }

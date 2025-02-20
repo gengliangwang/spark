@@ -5237,6 +5237,26 @@ class AstBuilder extends DataTypeAstBuilder
       AlterTableCollation(table, visitCollationSpec(ctx.collationSpec()))
     }
 
+  override def visitAddTableConstraint(ctx: AddTableConstraintContext): LogicalPlan =
+    withOrigin(ctx) {
+      val table = createUnresolvedTable(
+        ctx.identifierReference, "ALTER TABLE ... ADD CONSTRAINT")
+      val constraint =
+        expression(ctx.constraint().asInstanceOf[CheckConstraintContext].booleanExpression())
+      AlterTableAddConstraint(table, ctx.name.getText, constraint)
+    }
+
+  override def visitDropTableConstraint(ctx: DropTableConstraintContext): LogicalPlan =
+    withOrigin(ctx) {
+      val table = createUnresolvedTable(
+        ctx.identifierReference, "ALTER TABLE ... DROP CONSTRAINT")
+      AlterTableDropConstraint(
+          table,
+          ctx.name.getText,
+          ifExists = ctx.EXISTS() != null,
+          cascade = ctx.CASCADE() != null)
+    }
+
   /**
    * Parse [[SetViewProperties]] or [[SetTableProperties]] commands.
    *
