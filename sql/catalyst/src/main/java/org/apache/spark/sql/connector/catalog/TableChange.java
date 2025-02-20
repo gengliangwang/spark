@@ -270,7 +270,7 @@ public interface TableChange {
   /**
    * Create a TableChange for dropping a Table Constraint
    */
-  static TableChange dropConstraint(String name, Boolean ifExists, String mode) {
+  static TableChange dropConstraint(String name, Boolean ifExists, Boolean cascade) {
     return new DropConstraint(name, ifExists, mode);
   }
 
@@ -842,10 +842,10 @@ public interface TableChange {
     private final boolean ifExists;
     private final DropConstraintMode mode;
 
-    private DropConstraint(String name, boolean ifExists, String mode) {
+    private DropConstraint(String name, boolean ifExists, DropConstraintMode mode) {
       this.name = name;
       this.ifExists = ifExists;
-      this.mode = DropConstraintMode.valueOf(mode);
+      this.mode = mode;
     }
 
     public String getName() {
