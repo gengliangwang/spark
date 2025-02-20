@@ -263,14 +263,18 @@ public interface TableChange {
   /**
    * Create a TableChange for adding a new Table Constraint
    */
-  static TableChange addConstraint(Constraint constraint, Boolean validate) {
-    return new AddConstraint(constraint, validate);
+  static TableChange addCheckConstraint(Constraint constraint, Boolean validate) {
+    return new AddCheckConstraint(constraint, validate);
   }
 
   /**
    * Create a TableChange for dropping a Table Constraint
    */
   static TableChange dropConstraint(String name, Boolean ifExists, Boolean cascade) {
+    DropConstraintMode mode = DropConstraintMode.RESTRICT;
+    if (cascade) {
+      mode = DropConstraintMode.CASCADE;
+    }
     return new DropConstraint(name, ifExists, mode);
   }
 
@@ -803,11 +807,11 @@ public interface TableChange {
   }
 
   /** A TableChange to alter table and add a constraint. */
-  final class AddConstraint implements TableChange {
+  final class AddCheckConstraint implements TableChange {
     private final Constraint constraint;
     private final boolean validate;
 
-    private AddConstraint(Constraint constraint, boolean validate) {
+    private AddCheckConstraint(Constraint constraint, boolean validate) {
       this.constraint = constraint;
       this.validate = validate;
     }
@@ -824,7 +828,7 @@ public interface TableChange {
     public boolean equals(Object o) {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
-      AddConstraint that = (AddConstraint) o;
+      AddCheckConstraint that = (AddCheckConstraint) o;
       return constraint.equals(that.constraint) && validate == that.validate;
     }
 

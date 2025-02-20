@@ -22,7 +22,6 @@ import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.catalog.ClusterBySpec
 import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
 import org.apache.spark.sql.catalyst.util.{ResolveDefaultColumns, TypeUtils, V2ExpressionBuilder}
-import org.apache.spark.sql.connector.catalog.Constraint.Check
 import org.apache.spark.sql.connector.catalog.{Constraint, TableCatalog, TableChange}
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.types.DataType
@@ -301,8 +300,8 @@ case class AlterTableAddConstraint(
   lazy val predicate = new V2ExpressionBuilder(constraintExpr, true).buildPredicate()
 
   override def changes: Seq[TableChange] = {
-    val constraint = new Check(name, predicate.get)
-    Seq(TableChange.addConstraint(constraint, constraint.enforced()))
+    val constraint = Constraint.check(name, predicate.get)
+    Seq(TableChange.addCheckConstraint(constraint, constraint.enforced()))
   }
 
   protected def withNewChildInternal(newChild: LogicalPlan): LogicalPlan = copy(table = newChild)
