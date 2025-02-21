@@ -292,7 +292,7 @@ case class AlterTableCollation(
 /**
  * The logical plan of the ALTER TABLE ... ADD CONSTRAINT command.
  */
-case class AlterTableAddConstraint(
+case class AddConstraint(
     table: LogicalPlan,
     name: String,
     constraintExpr: Expression) extends AlterTableCommand {
@@ -310,7 +310,7 @@ case class AlterTableAddConstraint(
 /**
  * The logical plan of the ALTER TABLE ... DROP CONSTRAINT command.
  */
-case class AlterTableDropConstraint(
+case class DropConstraint(
     table: LogicalPlan,
     name: String,
     ifExists: Boolean,

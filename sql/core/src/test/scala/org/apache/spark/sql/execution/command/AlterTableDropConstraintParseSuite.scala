@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution.command
 import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedTable}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
-import org.apache.spark.sql.catalyst.plans.logical.AlterTableDropConstraint
+import org.apache.spark.sql.catalyst.plans.logical.DropConstraint
 import org.apache.spark.sql.test.SharedSparkSession
 
 class AlterTableDropConstraintParseSuite extends AnalysisTest with SharedSparkSession {
@@ -27,7 +27,7 @@ class AlterTableDropConstraintParseSuite extends AnalysisTest with SharedSparkSe
   test("Drop constraint") {
     val sql = "ALTER TABLE a.b.c DROP CONSTRAINT c1"
     val parsed = parsePlan(sql)
-    val expected = AlterTableDropConstraint(
+    val expected = DropConstraint(
       UnresolvedTable(
         Seq("a", "b", "c"),
         "ALTER TABLE ... DROP CONSTRAINT"),
@@ -40,7 +40,7 @@ class AlterTableDropConstraintParseSuite extends AnalysisTest with SharedSparkSe
   test("Drop constraint if exists") {
     val sql = "ALTER TABLE a.b.c DROP CONSTRAINT IF EXISTS c1"
     val parsed = parsePlan(sql)
-    val expected = AlterTableDropConstraint(
+    val expected = DropConstraint(
       UnresolvedTable(
         Seq("a", "b", "c"),
         "ALTER TABLE ... DROP CONSTRAINT"),
@@ -53,7 +53,7 @@ class AlterTableDropConstraintParseSuite extends AnalysisTest with SharedSparkSe
   test("Drop constraint cascade") {
     val sql = "ALTER TABLE a.b.c DROP CONSTRAINT c1 CASCADE"
     val parsed = parsePlan(sql)
-    val expected = AlterTableDropConstraint(
+    val expected = DropConstraint(
       UnresolvedTable(
         Seq("a", "b", "c"),
         "ALTER TABLE ... DROP CONSTRAINT"),
@@ -66,7 +66,7 @@ class AlterTableDropConstraintParseSuite extends AnalysisTest with SharedSparkSe
   test("Drop constraint restrict") {
     val sql = "ALTER TABLE a.b.c DROP CONSTRAINT c1 RESTRICT"
     val parsed = parsePlan(sql)
-    val expected = AlterTableDropConstraint(
+    val expected = DropConstraint(
       UnresolvedTable(
         Seq("a", "b", "c"),
         "ALTER TABLE ... DROP CONSTRAINT"),

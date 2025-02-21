@@ -1191,7 +1191,7 @@ trait CheckAnalysis extends LookupCatalog with QueryErrorsBase with PlanToString
           case _ =>
         }
 
-      case addConstraint @ AlterTableAddConstraint(table: ResolvedTable, _, constraintExpr) =>
+      case addConstraint @ AddConstraint(table: ResolvedTable, _, constraintExpr) =>
         if (!constraintExpr.resolved) {
           constraintExpr.failAnalysis(
             errorClass = "INVALID_CHECK_CONSTRAINT.UNRESOLVED",

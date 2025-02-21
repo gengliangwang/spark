@@ -5243,14 +5243,14 @@ class AstBuilder extends DataTypeAstBuilder
         ctx.identifierReference, "ALTER TABLE ... ADD CONSTRAINT")
       val constraint =
         expression(ctx.constraint().asInstanceOf[CheckConstraintContext].booleanExpression())
-      AlterTableAddConstraint(table, ctx.name.getText, constraint)
+      AddConstraint(table, ctx.name.getText, constraint)
     }
 
   override def visitDropTableConstraint(ctx: DropTableConstraintContext): LogicalPlan =
     withOrigin(ctx) {
       val table = createUnresolvedTable(
         ctx.identifierReference, "ALTER TABLE ... DROP CONSTRAINT")
-      AlterTableDropConstraint(
+      DropConstraint(
           table,
           ctx.name.getText,
           ifExists = ctx.EXISTS() != null,

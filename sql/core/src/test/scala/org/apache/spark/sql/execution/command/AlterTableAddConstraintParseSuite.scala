@@ -20,7 +20,7 @@ import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.{GreaterThan, Literal}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
-import org.apache.spark.sql.catalyst.plans.logical.AlterTableAddConstraint
+import org.apache.spark.sql.catalyst.plans.logical.AddConstraint
 import org.apache.spark.sql.test.SharedSparkSession
 
 class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSession {
@@ -31,7 +31,7 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
         |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0)
         |""".stripMargin
     val parsed = parsePlan(sql)
-    val expected = AlterTableAddConstraint(
+    val expected = AddConstraint(
       UnresolvedTable(
         Seq("a", "b", "c"),
         "ALTER TABLE ... ADD CONSTRAINT"),
