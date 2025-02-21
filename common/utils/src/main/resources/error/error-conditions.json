@@ -2303,6 +2303,24 @@
     ],
     "sqlState" : "22P03"
   },
+  "INVALID_CHECK_CONSTRAINT": {
+    "message" : [
+      "The check constraint expression is invalid."
+    ],
+    "subClass" : {
+      "INVALID_V2_PREDICATE" : {
+        "message" : [
+          "It cannot be converted to a data source V2 predicate."
+        ]
+      },
+      "NONDETERMINISTIC" : {
+        "message" : [
+          "It contains nondeterministic expression."
+        ]
+      }
+    },
+    "sqlState": "42621"
+  },
   "INVALID_COLUMN_NAME_AS_PATH" : {
     "message" : [
       "The datasource <datasource> cannot save the column <columnName> because its name contains some characters that are not allowed in file paths. Please, use an alias to rename it."
@@ -4137,28 +4155,6 @@
       }
     },
     "sqlState" : "0A000"
-  },
-  "NOT_SUPPORTED_TABLE_CONSTRAINT": {
-    "message" : [
-      "Table constraint <expression> is not supported: "
-    ],
-    "subClass" : {
-      "INVALID_V2_PREDICATE" : {
-        "message" : [
-          "cannot convert to data source V2 predicate."
-        ]
-      },
-      "NONDETERMINISTIC" : {
-        "message" : [
-          "nondeterministic expression."
-        ]
-      },
-      "UNRESOLVED" : {
-        "message" : [
-          "cannot resolve expression."
-        ]
-      }
-    }
   },
   "NOT_UNRESOLVED_ENCODER" : {
     "message" : [
