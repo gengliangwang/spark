@@ -46,7 +46,7 @@ public interface Constraint {
 
         @Override
         public String toDDL() {
-            return "Check (" + predicate.toString() + ")";
+            return "CHECK (" + predicate.toString() + ")";
         }
 
         @Override public boolean rely() {

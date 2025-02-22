@@ -18,8 +18,10 @@
 package org.apache.spark.sql.execution.command.v2
 
 import org.apache.spark.sql.{AnalysisException, QueryTest}
+import org.apache.spark.sql.connector.catalog.Constraint.Check
+import org.apache.spark.sql.execution.command.DDLCommandTestUtils
 
-class CheckConstraintSuite extends QueryTest with CommandSuiteBase {
+class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLCommandTestUtils {
   test("Nondeterministic expression") {
     withTable("t") {
       sql("create table t(i double) using parquet")
@@ -92,4 +94,44 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase {
       )
     }
   }
+
+  test("Add check constraint") {
+    withNamespaceAndTable("ns", "tbl", catalog) { t =>
+      sql(s"CREATE TABLE $t (id bigint, data string) $defaultUsing")
+      assert(loadTable(catalog, "ns", "tbl").constraints.isEmpty)
+
+      sql(s"ALTER TABLE $t ADD CONSTRAINT c1 CHECK (id > 0)")
+      val table = loadTable(catalog, "ns", "tbl")
+      assert(table.constraints.length == 1)
+      assert(table.constraints.head.isInstanceOf[Check])
+      val constraint = table.constraints.head.asInstanceOf[Check]
+      assert(constraint.name() == "c1")
+      assert(constraint.rely())
+      assert(constraint.enforced())
+      assert(constraint.toDDL == "CHECK (id > 0)")
+    }
+  }
+
+  test("Add duplicated check constraint") {
+    withNamespaceAndTable("ns", "tbl", catalog) { t =>
+      sql(s"CREATE TABLE $t (id bigint, data string) $defaultUsing")
+      assert(loadTable(catalog, "ns", "tbl").constraints.isEmpty)
+
+      sql(s"ALTER TABLE $t ADD CONSTRAINT abc CHECK (id > 0)")
+      // Constraint names are case-insensitive
+      Seq("abc", "ABC").foreach { name =>
+        val error = intercept[AnalysisException] {
+          sql(s"ALTER TABLE $t ADD CONSTRAINT $name CHECK (id > 0)")
+        }
+        checkError(
+          exception = error,
+          condition = "CONSTRAINT_ALREADY_EXISTS",
+          sqlState = "42710",
+          parameters = Map("constraintName" -> "abc", "oldConstraint" -> "CHECK (id > 0)")
+        )
+      }
+    }
+  }
+
+  override protected def command: String = "ALTER TABLE .. ADD CONSTRAINT"
 }
