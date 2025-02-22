@@ -18,7 +18,7 @@
 package org.apache.spark.sql.connector.catalog
 
 import java.util
-import java.util.Collections
+import java.util.{Collections, Locale}
 
 import scala.jdk.CollectionConverters._
 
@@ -192,6 +192,46 @@ private[sql] object CatalogV2Util {
     }
 
     newPartitioning
+  }
+
+  /**
+   * Apply Table Constraints changes to an existing set of constraints and return the result.
+   */
+  def applyConstraintChanges(
+      table: Table,
+      changes: Seq[TableChange]): Array[Constraint] = {
+    val constraints = table.constraints()
+    changes.foldLeft(constraints) { (constraints, change) =>
+      change match {
+        case add: AddCheckConstraint =>
+          val newConstraint = add.getConstraint
+          val existingConstraint =
+            constraints.find(
+              _.name.toLowerCase(Locale.ROOT) == newConstraint.name().toLowerCase(Locale.ROOT))
+          if (existingConstraint.isDefined) {
+            throw new AnalysisException(
+              errorClass = "CONSTRAINT_ALREADY_EXISTS",
+              messageParameters =
+                Map("constraintName" -> existingConstraint.get.name,
+                  "oldConstraint" -> existingConstraint.get.toDDL))
+          }
+          constraints :+ newConstraint
+
+        case drop: DropConstraint =>
+          val existingConstraint = constraints.find(_.name == drop.getName)
+          if (existingConstraint.isEmpty && !drop.isIfExists) {
+            throw new AnalysisException(
+              errorClass = "CONSTRAINT_DOES_NOT_EXIST",
+              messageParameters =
+                Map("constraintName" -> drop.getName, "tableName" -> table.name()))
+          }
+          constraints.filterNot(_.name == drop.getName)
+
+        case _ =>
+          // ignore non-constraint changes
+          constraints
+      }
+    }.toArray
   }
 
   /**

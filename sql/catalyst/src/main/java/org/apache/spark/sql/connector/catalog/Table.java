@@ -83,4 +83,9 @@ public interface Table {
    * Returns the set of capabilities for this table.
    */
   Set<TableCapability> capabilities();
+
+  /**
+   * Returns the constraints for this table.
+   */
+  default Constraint[] constraints() { return new Constraint[0]; }
 }
