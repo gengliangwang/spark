@@ -201,13 +201,16 @@ private[sql] object CatalogV2Util {
       table: Table,
       changes: Seq[TableChange]): Array[Constraint] = {
     val constraints = table.constraints()
+
+    def findExistingConstraint(name: String): Option[Constraint] = {
+      constraints.find(_.name.toLowerCase(Locale.ROOT) == name.toLowerCase(Locale.ROOT))
+    }
+
     changes.foldLeft(constraints) { (constraints, change) =>
       change match {
         case add: AddCheckConstraint =>
           val newConstraint = add.getConstraint
-          val existingConstraint =
-            constraints.find(
-              _.name.toLowerCase(Locale.ROOT) == newConstraint.name().toLowerCase(Locale.ROOT))
+          val existingConstraint = findExistingConstraint(newConstraint.name)
           if (existingConstraint.isDefined) {
             throw new AnalysisException(
               errorClass = "CONSTRAINT_ALREADY_EXISTS",
@@ -218,7 +221,7 @@ private[sql] object CatalogV2Util {
           constraints :+ newConstraint
 
         case drop: DropConstraint =>
-          val existingConstraint = constraints.find(_.name == drop.getName)
+          val existingConstraint = findExistingConstraint(drop.getName)
           if (existingConstraint.isEmpty && !drop.isIfExists) {
             throw new AnalysisException(
               errorClass = "CONSTRAINT_DOES_NOT_EXIST",

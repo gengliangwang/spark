@@ -22,6 +22,8 @@ import org.apache.spark.sql.connector.catalog.Constraint.Check
 import org.apache.spark.sql.execution.command.DDLCommandTestUtils
 
 class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLCommandTestUtils {
+  override protected def command: String = "ALTER TABLE .. ADD CONSTRAINT"
+
   test("Nondeterministic expression") {
     withTable("t") {
       sql("create table t(i double) using parquet")
@@ -132,6 +134,4 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
       }
     }
   }
-
-  override protected def command: String = "ALTER TABLE .. ADD CONSTRAINT"
 }
