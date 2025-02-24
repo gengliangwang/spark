@@ -5643,6 +5643,11 @@
           "Attach a comment to the namespace <namespace>."
         ]
       },
+      "CONSTRAINT_TYPE" : {
+        "message" : [
+          "Constraint <constraint>."
+        ]
+      },
       "CONTINUE_EXCEPTION_HANDLER" : {
         "message" : [
           "CONTINUE exception handler is not supported. Use EXIT handler."

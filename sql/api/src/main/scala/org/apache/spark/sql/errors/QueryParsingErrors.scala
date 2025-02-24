@@ -791,4 +791,11 @@ private[sql] object QueryParsingErrors extends DataTypeErrorsBase {
   def clusterByWithBucketing(ctx: ParserRuleContext): Throwable = {
     new ParseException(errorClass = "SPECIFY_CLUSTER_BY_WITH_BUCKETING_IS_NOT_ALLOWED", ctx)
   }
+
+  def constraintNotSupportedError(ctx: ParserRuleContext, constraint: String): Throwable = {
+    new ParseException(
+      errorClass = "UNSUPPORTED_FEATURE.CONSTRAINT_TYPE",
+      messageParameters = Map("constraint" -> constraint),
+      ctx)
+  }
 }
