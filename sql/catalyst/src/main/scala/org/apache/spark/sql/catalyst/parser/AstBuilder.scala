@@ -5250,7 +5250,7 @@ class AstBuilder extends DataTypeAstBuilder
   }
 
   /**
-   * Parse a [[AddConstraint]] command.
+   * Parse a [[AddCheckConstraint]] command.
    *
    * For example:
    * {{{
@@ -5262,7 +5262,7 @@ class AstBuilder extends DataTypeAstBuilder
       val table = createUnresolvedTable(
         ctx.identifierReference, "ALTER TABLE ... ADD CONSTRAINT")
       val constraintExpression = visitConstraintSpec(ctx.constraintSpec())
-      AddConstraint(table, ctx.constraintSpec().constraintName.getText, constraintExpression)
+      AddCheckConstraint(table, ctx.constraintSpec().constraintName.getText, constraintExpression)
     }
 
 
