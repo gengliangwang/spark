@@ -4739,7 +4739,7 @@ class AstBuilder extends DataTypeAstBuilder
         clusterBySpec.map(_.asTransform)
 
     val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
-      collation, serdeInfo, external)
+      collation, serdeInfo, external, constraints)
 
     Option(ctx.query).map(plan) match {
       case Some(_) if columns.nonEmpty =>
@@ -4813,7 +4813,7 @@ class AstBuilder extends DataTypeAstBuilder
         clusterBySpec.map(_.asTransform)
 
     val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
-      collation, serdeInfo, external = false)
+      collation, serdeInfo, external = false, constraints)
 
     Option(ctx.query).map(plan) match {
       case Some(_) if columns.nonEmpty =>

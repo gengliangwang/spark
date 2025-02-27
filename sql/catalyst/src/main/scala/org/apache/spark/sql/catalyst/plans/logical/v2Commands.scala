@@ -1520,7 +1520,8 @@ case class UnresolvedTableSpec(
     comment: Option[String],
     collation: Option[String],
     serde: Option[SerdeInfo],
-    external: Boolean) extends UnaryExpression with Unevaluable with TableSpecBase {
+    external: Boolean,
+    constraints: Seq[Expression]) extends UnaryExpression with Unevaluable with TableSpecBase {
 
   override def dataType: DataType =
     throw new SparkUnsupportedOperationException("_LEGACY_ERROR_TEMP_3113")
@@ -1566,9 +1567,11 @@ case class TableSpec(
     comment: Option[String],
     collation: Option[String],
     serde: Option[SerdeInfo],
-    external: Boolean) extends TableSpecBase {
+    external: Boolean,
+    constraints: Seq[Constraint]) extends TableSpecBase {
   def withNewLocation(newLocation: Option[String]): TableSpec = {
-    TableSpec(properties, provider, options, newLocation, comment, collation, serde, external)
+    TableSpec(properties, provider, options, newLocation,
+      comment, collation, serde, external, constraints)
   }
 }
 

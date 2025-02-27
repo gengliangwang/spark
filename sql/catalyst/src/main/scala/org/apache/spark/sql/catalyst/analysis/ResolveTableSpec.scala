@@ -94,7 +94,8 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
         comment = u.comment,
         collation = u.collation,
         serde = u.serde,
-        external = u.external)
+        external = u.external,
+        constraints = Seq.empty)
       withNewSpec(newTableSpec)
     case _ =>
       input
