@@ -1191,7 +1191,7 @@ trait CheckAnalysis extends LookupCatalog with QueryErrorsBase with PlanToString
           case _ =>
         }
 
-      case addConstraint @ AddCheckConstraint(table: ResolvedTable, _, constraintExpr) =>
+      case addConstraint @ AddCheckConstraint(table: ResolvedTable, _, _, constraintExpr) =>
         if (!constraintExpr.resolved) {
           constraintExpr.failAnalysis(
             errorClass = "INVALID_CHECK_CONSTRAINT.UNRESOLVED",
@@ -1202,13 +1202,6 @@ trait CheckAnalysis extends LookupCatalog with QueryErrorsBase with PlanToString
         if (!constraintExpr.deterministic) {
           constraintExpr.failAnalysis(
             errorClass = "INVALID_CHECK_CONSTRAINT.NONDETERMINISTIC",
-            messageParameters = Map.empty
-          )
-        }
-
-        if (addConstraint.predicate.isEmpty) {
-          constraintExpr.failAnalysis(
-            errorClass = "INVALID_CHECK_CONSTRAINT.INVALID_V2_PREDICATE",
             messageParameters = Map.empty
           )
         }

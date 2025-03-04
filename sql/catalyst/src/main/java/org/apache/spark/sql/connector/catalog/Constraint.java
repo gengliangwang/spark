@@ -25,17 +25,20 @@ public interface Constraint {
     boolean rely(); // indicates whether the constraint is believed to be true
     boolean enforced(); // indicates whether the constraint must be enforced
 
-    static Constraint check(String name, Predicate predicate) {
-      return new Check(name, predicate);
+    static Constraint check(String name, String sql, Predicate predicate) {
+      return new Check(name, sql, predicate);
     }
 
     final class Check implements Constraint {
         private final String name;
+        private final String sql;
         private final Predicate predicate;
-        private Check(String name, Predicate predicate) {
+        private Check(String name, String sql, Predicate predicate) {
           this.name = name;
+          this.sql = sql;
           this.predicate = predicate;
         }
+
         @Override public String name() {
             return name;
         }
@@ -46,7 +49,7 @@ public interface Constraint {
 
         @Override
         public String toDDL() {
-            return "CHECK (" + predicate.toString() + ")";
+            return "CHECK (" + sql + ")";
         }
 
         @Override public boolean rely() {
@@ -56,5 +59,9 @@ public interface Constraint {
         @Override public boolean enforced() {
             return true;
         }
+
+        public String sql() { return sql; }
+
+        public Predicate predicate() { return predicate; }
     }
 }

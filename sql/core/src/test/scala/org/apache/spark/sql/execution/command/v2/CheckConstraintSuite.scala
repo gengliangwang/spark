@@ -19,6 +19,7 @@ package org.apache.spark.sql.execution.command.v2
 
 import org.apache.spark.sql.{AnalysisException, QueryTest}
 import org.apache.spark.sql.connector.catalog.Constraint.Check
+import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.execution.command.DDLCommandTestUtils
 
 class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLCommandTestUtils {
@@ -73,27 +74,26 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
     }
   }
 
-  test("Can't convert expression to V2 predicate") {
-    withTable("t") {
-      sql("create table t(i string) using parquet")
-      val query =
-        """
-          |ALTER TABLE t ADD CONSTRAINT c1 CHECK (from_json(i, 'a INT').a > 1)
-          |""".stripMargin
-      val error = intercept[AnalysisException] {
-        sql(query)
-      }
-      checkError(
-        exception = error,
-        condition = "INVALID_CHECK_CONSTRAINT.INVALID_V2_PREDICATE",
-        sqlState = "42621",
-        parameters = Map.empty,
-        context = ExpectedContext(
-          fragment = "from_json(i, 'a INT').a > 1",
-          start = 40,
-          stop = 66
-        )
-      )
+  private def getCheckConstraint(table: Table): Check = {
+    assert(table.constraints.length == 1)
+    assert(table.constraints.head.isInstanceOf[Check])
+    table.constraints.head.asInstanceOf[Check]
+    val constraint = table.constraints.head.asInstanceOf[Check]
+    assert(constraint.rely())
+    assert(constraint.enforced())
+    constraint
+  }
+
+  test("Predicate should be null if it can't be converted to V2 predicate") {
+    withNamespaceAndTable("ns", "tbl", catalog) { t =>
+      sql(s"CREATE TABLE $t (id bigint, j string) $defaultUsing")
+      sql(s"ALTER TABLE $t ADD CONSTRAINT c1 CHECK (from_json(j, 'a INT').a > 1)")
+      val table = loadTable(catalog, "ns", "tbl")
+      val constraint = getCheckConstraint(table)
+      assert(constraint.name() == "c1")
+      assert(constraint.toDDL == "CHECK (from_json(j,'a INT').a>1)")
+      assert(constraint.sql() == "from_json(j,'a INT').a>1")
+      assert(constraint.predicate() == null)
     }
   }
 
@@ -104,13 +104,9 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
 
       sql(s"ALTER TABLE $t ADD CONSTRAINT c1 CHECK (id > 0)")
       val table = loadTable(catalog, "ns", "tbl")
-      assert(table.constraints.length == 1)
-      assert(table.constraints.head.isInstanceOf[Check])
-      val constraint = table.constraints.head.asInstanceOf[Check]
+      val constraint = getCheckConstraint(table)
       assert(constraint.name() == "c1")
-      assert(constraint.rely())
-      assert(constraint.enforced())
-      assert(constraint.toDDL == "CHECK (id > 0)")
+      assert(constraint.toDDL == "CHECK (id>0)")
     }
   }
 
@@ -123,13 +119,13 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
       // Constraint names are case-insensitive
       Seq("abc", "ABC").foreach { name =>
         val error = intercept[AnalysisException] {
-          sql(s"ALTER TABLE $t ADD CONSTRAINT $name CHECK (id > 0)")
+          sql(s"ALTER TABLE $t ADD CONSTRAINT $name CHECK (id>0)")
         }
         checkError(
           exception = error,
           condition = "CONSTRAINT_ALREADY_EXISTS",
           sqlState = "42710",
-          parameters = Map("constraintName" -> "abc", "oldConstraint" -> "CHECK (id > 0)")
+          parameters = Map("constraintName" -> "abc", "oldConstraint" -> "CHECK (id>0)")
         )
       }
     }

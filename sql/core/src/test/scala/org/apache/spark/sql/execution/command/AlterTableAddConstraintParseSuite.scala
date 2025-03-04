@@ -36,6 +36,7 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
         Seq("a", "b", "c"),
         "ALTER TABLE ... ADD CONSTRAINT"),
       "c1",
+      "d > 0",
       GreaterThan(UnresolvedAttribute("d"), Literal(0)))
     comparePlans(parsed, expected)
   }

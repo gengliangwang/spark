@@ -4642,10 +4642,10 @@ class AstBuilder extends DataTypeAstBuilder
       }
     }
 
-    val constraints = ctx.constraintSpec().asScala.map(visitConstraintSpec).toSeq
+    // val constraints = ctx.constraintSpec().asScala.map(visitConstraintSpec).toSeq
 
     (partTransforms, partCols, bucketSpec, cleanedProperties, cleanedOptions, newLocation, comment,
-      collation, serdeInfo, clusterBySpec, constraints)
+      collation, serdeInfo, clusterBySpec, Seq.empty)
   }
 
   protected def getSerdeInfo(
@@ -5241,14 +5241,6 @@ class AstBuilder extends DataTypeAstBuilder
       AlterTableCollation(table, visitCollationSpec(ctx.collationSpec()))
     }
 
-  override def visitConstraintSpec(ctx: ConstraintSpecContext): Expression = {
-    ctx.constraintExpression() match {
-      case c: CheckConstraintContext => expression(c.booleanExpression())
-      case other =>
-        throw QueryParsingErrors.constraintNotSupportedError(ctx, other.getText)
-    }
-  }
-
   /**
    * Parse a [[AddCheckConstraint]] command.
    *
@@ -5261,8 +5253,16 @@ class AstBuilder extends DataTypeAstBuilder
     withOrigin(ctx) {
       val table = createUnresolvedTable(
         ctx.identifierReference, "ALTER TABLE ... ADD CONSTRAINT")
-      val constraintExpression = visitConstraintSpec(ctx.constraintSpec())
-      AddCheckConstraint(table, ctx.constraintSpec().constraintName.getText, constraintExpression)
+      ctx.constraintSpec.constraintExpression() match {
+        case c: CheckConstraintContext =>
+          AddCheckConstraint(
+            table,
+            ctx.constraintSpec().constraintName.getText,
+            c.booleanExpression().getText,
+            expression(c.booleanExpression()))
+        case other =>
+          throw QueryParsingErrors.constraintNotSupportedError(ctx, other.getText)
+      }
     }
 
 

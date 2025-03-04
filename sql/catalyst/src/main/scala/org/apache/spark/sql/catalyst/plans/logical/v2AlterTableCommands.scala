@@ -295,12 +295,13 @@ case class AlterTableCollation(
 case class AddCheckConstraint(
     table: LogicalPlan,
     name: String,
+    constraintText: String,
     constraintExpr: Expression) extends AlterTableCommand {
 
   lazy val predicate = new V2ExpressionBuilder(constraintExpr, true).buildPredicate()
 
   override def changes: Seq[TableChange] = {
-    val constraint = Constraint.check(name, predicate.get)
+    val constraint = Constraint.check(name, constraintText, predicate.orNull)
     Seq(TableChange.addCheckConstraint(constraint, constraint.enforced()))
   }
 
