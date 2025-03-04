@@ -20,9 +20,9 @@ package org.apache.spark.sql.catalyst.plans.logical
 import org.apache.spark.sql.catalyst.analysis.{FieldName, FieldPosition, ResolvedFieldName, UnresolvedException}
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.catalog.ClusterBySpec
-import org.apache.spark.sql.catalyst.expressions.{Expression, Unevaluable}
-import org.apache.spark.sql.catalyst.util.{ResolveDefaultColumns, TypeUtils, V2ExpressionBuilder}
-import org.apache.spark.sql.connector.catalog.{Constraint, TableCatalog, TableChange}
+import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, Expression, Unevaluable}
+import org.apache.spark.sql.catalyst.util.{ResolveDefaultColumns, TypeUtils}
+import org.apache.spark.sql.connector.catalog.{TableCatalog, TableChange}
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.util.ArrayImplicits._
@@ -294,14 +294,9 @@ case class AlterTableCollation(
  */
 case class AddCheckConstraint(
     table: LogicalPlan,
-    name: String,
-    constraintText: String,
-    constraintExpr: Expression) extends AlterTableCommand {
-
-  lazy val predicate = new V2ExpressionBuilder(constraintExpr, true).buildPredicate()
-
+    check: CheckConstraint) extends AlterTableCommand {
   override def changes: Seq[TableChange] = {
-    val constraint = Constraint.check(name, constraintText, predicate.orNull)
+    val constraint = check.asConstraint
     Seq(TableChange.addConstraint(constraint, constraint.enforced()))
   }
 

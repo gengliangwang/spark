@@ -4139,7 +4139,7 @@ class AstBuilder extends DataTypeAstBuilder
   type TableClauses = (
       Seq[Transform], Seq[ColumnDefinition], Option[BucketSpec], Map[String, String], OptionList,
       Option[String], Option[String], Option[String], Option[SerdeInfo], Option[ClusterBySpec],
-      Seq[Expression])
+      Seq[ConstraintExpression])
 
   /**
    * Validate a create table statement and return the [[TableIdentifier]].
@@ -4642,10 +4642,10 @@ class AstBuilder extends DataTypeAstBuilder
       }
     }
 
-    // val constraints = ctx.constraintSpec().asScala.map(visitConstraintSpec).toSeq
+    val constraints = ctx.constraintSpec().asScala.map(visitConstraintSpec).toSeq
 
     (partTransforms, partCols, bucketSpec, cleanedProperties, cleanedOptions, newLocation, comment,
-      collation, serdeInfo, clusterBySpec, Seq.empty)
+      collation, serdeInfo, clusterBySpec, constraints)
   }
 
   protected def getSerdeInfo(
@@ -5241,6 +5241,19 @@ class AstBuilder extends DataTypeAstBuilder
       AlterTableCollation(table, visitCollationSpec(ctx.collationSpec()))
     }
 
+  override def visitConstraintSpec(ctx: ConstraintSpecContext): ConstraintExpression = {
+    ctx.constraintExpression() match {
+      case c: CheckConstraintContext =>
+        CheckConstraint(
+          name = ctx.constraintName.getText,
+          sql = c.booleanExpression().getText,
+          child = expression(c.booleanExpression())
+        )
+      case other =>
+        throw QueryParsingErrors.constraintNotSupportedError(ctx, other.getText)
+    }
+  }
+
   /**
    * Parse a [[AddCheckConstraint]] command.
    *
@@ -5253,15 +5266,9 @@ class AstBuilder extends DataTypeAstBuilder
     withOrigin(ctx) {
       val table = createUnresolvedTable(
         ctx.identifierReference, "ALTER TABLE ... ADD CONSTRAINT")
-      ctx.constraintSpec.constraintExpression() match {
-        case c: CheckConstraintContext =>
-          AddCheckConstraint(
-            table,
-            ctx.constraintSpec().constraintName.getText,
-            c.booleanExpression().getText,
-            expression(c.booleanExpression()))
-        case other =>
-          throw QueryParsingErrors.constraintNotSupportedError(ctx, other.getText)
+      visitConstraintSpec(ctx.constraintSpec) match {
+        case c: CheckConstraint =>
+          AddCheckConstraint(table, c)
       }
     }
 

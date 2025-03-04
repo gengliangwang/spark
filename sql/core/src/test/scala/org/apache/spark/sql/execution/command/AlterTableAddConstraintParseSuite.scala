@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedAttribute, UnresolvedTable}
-import org.apache.spark.sql.catalyst.expressions.{GreaterThan, Literal}
+import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, GreaterThan, Literal}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.plans.logical.AddCheckConstraint
@@ -35,9 +35,10 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
       UnresolvedTable(
         Seq("a", "b", "c"),
         "ALTER TABLE ... ADD CONSTRAINT"),
-      "c1",
-      "d > 0",
-      GreaterThan(UnresolvedAttribute("d"), Literal(0)))
+      CheckConstraint(
+        "c1",
+        "d > 0",
+        GreaterThan(UnresolvedAttribute("d"), Literal(0))))
     comparePlans(parsed, expected)
   }
 
