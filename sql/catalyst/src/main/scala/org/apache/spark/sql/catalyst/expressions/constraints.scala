@@ -16,6 +16,7 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.apache.spark.SparkUnsupportedOperationException
 import org.apache.spark.sql.catalyst.trees.UnaryLike
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
 import org.apache.spark.sql.connector.catalog.Constraint
@@ -44,3 +45,27 @@ case class CheckConstraint(
     copy(child = newChild)
 }
 
+/*
+  * A list of constraints that are applied to a table.
+ */
+case class Constraints(children: Seq[Expression]) extends Expression with Unevaluable {
+
+  assert(children.forall(_.isInstanceOf[ConstraintExpression]))
+
+  override def nullable: Boolean = true
+
+  override def dataType: DataType =
+    throw new SparkUnsupportedOperationException("_LEGACY_ERROR_TEMP_3113")
+
+  override protected def withNewChildrenInternal(
+    newChildren: IndexedSeq[Expression]): Expression = {
+    copy(children = newChildren)
+  }
+
+  def asConstraintList: Seq[Constraint] =
+    children.map(_.asInstanceOf[ConstraintExpression].asConstraint)
+}
+
+object Constraints {
+  val empty: Constraints = Constraints(Nil)
+}

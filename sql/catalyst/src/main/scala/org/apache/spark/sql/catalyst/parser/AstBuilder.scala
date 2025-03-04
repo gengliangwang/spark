@@ -4139,7 +4139,7 @@ class AstBuilder extends DataTypeAstBuilder
   type TableClauses = (
       Seq[Transform], Seq[ColumnDefinition], Option[BucketSpec], Map[String, String], OptionList,
       Option[String], Option[String], Option[String], Option[SerdeInfo], Option[ClusterBySpec],
-      Seq[ConstraintExpression])
+      Constraints)
 
   /**
    * Validate a create table statement and return the [[TableIdentifier]].
@@ -4642,7 +4642,7 @@ class AstBuilder extends DataTypeAstBuilder
       }
     }
 
-    val constraints = ctx.constraintSpec().asScala.map(visitConstraintSpec).toSeq
+    val constraints = Constraints(ctx.constraintSpec().asScala.map(visitConstraintSpec).toSeq)
 
     (partTransforms, partCols, bucketSpec, cleanedProperties, cleanedOptions, newLocation, comment,
       collation, serdeInfo, clusterBySpec, constraints)

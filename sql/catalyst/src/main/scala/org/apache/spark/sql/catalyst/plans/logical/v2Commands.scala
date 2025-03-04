@@ -23,11 +23,11 @@ import org.apache.spark.sql.catalyst.analysis.{AnalysisContext, AssignmentUtils,
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult.{DataTypeMismatch, TypeCheckSuccess}
 import org.apache.spark.sql.catalyst.catalog.{FunctionResource, RoutineLanguage}
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, AttributeSet, Expression, MetadataAttribute, UnaryExpression, Unevaluable, V2ExpressionUtils}
+import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.DescribeCommandSchema
 import org.apache.spark.sql.catalyst.trees.BinaryLike
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
-import org.apache.spark.sql.catalyst.util.{quoteIfNeeded, truncatedString, CharVarcharUtils, ReplaceDataProjections, RowDeltaUtils, WriteDeltaProjections}
+import org.apache.spark.sql.catalyst.util._
 import org.apache.spark.sql.catalyst.util.TypeUtils.{ordinalNumber, toSQLExpr}
 import org.apache.spark.sql.connector.catalog._
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.{IdentifierHelper, MultipartIdentifierHelper}
@@ -1521,20 +1521,26 @@ case class UnresolvedTableSpec(
     collation: Option[String],
     serde: Option[SerdeInfo],
     external: Boolean,
-    constraints: Seq[Expression] = Seq.empty)
-  extends UnaryExpression with Unevaluable with TableSpecBase {
+    constraints: Constraints)
+  extends BinaryExpression with Unevaluable with TableSpecBase {
 
   override def dataType: DataType =
     throw new SparkUnsupportedOperationException("_LEGACY_ERROR_TEMP_3113")
 
-  override def child: Expression = optionExpression
-
-  override protected def withNewChildInternal(newChild: Expression): Expression =
-    this.copy(optionExpression = newChild.asInstanceOf[OptionList])
-
   override def simpleString(maxFields: Int): String = {
     this.copy(properties = Utils.redact(properties).toMap).toString
   }
+
+  override def left: Expression = optionExpression
+
+  override def right: Expression = constraints
+
+  override protected def withNewChildrenInternal(
+    newLeft: Expression, newRight: Expression): Expression =
+    copy(optionExpression = newLeft.asInstanceOf[OptionList],
+      constraints = newRight.asInstanceOf[Constraints])
+
+  override def nullable: Boolean = true
 }
 
 /**
