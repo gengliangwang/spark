@@ -302,7 +302,7 @@ case class AddCheckConstraint(
 
   override def changes: Seq[TableChange] = {
     val constraint = Constraint.check(name, constraintText, predicate.orNull)
-    Seq(TableChange.addCheckConstraint(constraint, constraint.enforced()))
+    Seq(TableChange.addConstraint(constraint, constraint.enforced()))
   }
 
   protected def withNewChildInternal(newChild: LogicalPlan): LogicalPlan = copy(table = newChild)

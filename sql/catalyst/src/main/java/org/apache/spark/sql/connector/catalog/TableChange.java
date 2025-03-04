@@ -263,8 +263,8 @@ public interface TableChange {
   /**
    * Create a TableChange for adding a new Table Constraint
    */
-  static TableChange addCheckConstraint(Constraint constraint, Boolean validate) {
-    return new AddCheckConstraint(constraint, validate);
+  static TableChange addConstraint(Constraint constraint, Boolean validate) {
+    return new AddConstraint(constraint, validate);
   }
 
   /**
@@ -807,11 +807,11 @@ public interface TableChange {
   }
 
   /** A TableChange to alter table and add a constraint. */
-  final class AddCheckConstraint implements TableChange {
+  final class AddConstraint implements TableChange {
     private final Constraint constraint;
     private final boolean validate;
 
-    private AddCheckConstraint(Constraint constraint, boolean validate) {
+    private AddConstraint(Constraint constraint, boolean validate) {
       this.constraint = constraint;
       this.validate = validate;
     }
@@ -828,7 +828,7 @@ public interface TableChange {
     public boolean equals(Object o) {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
-      AddCheckConstraint that = (AddCheckConstraint) o;
+      AddConstraint that = (AddConstraint) o;
       return constraint.equals(that.constraint) && validate == that.validate;
     }
 

@@ -208,7 +208,7 @@ private[sql] object CatalogV2Util {
 
     changes.foldLeft(constraints) { (constraints, change) =>
       change match {
-        case add: AddCheckConstraint =>
+        case add: AddConstraint =>
           val newConstraint = add.getConstraint
           val existingConstraint = findExistingConstraint(newConstraint.name)
           if (existingConstraint.isDefined) {
