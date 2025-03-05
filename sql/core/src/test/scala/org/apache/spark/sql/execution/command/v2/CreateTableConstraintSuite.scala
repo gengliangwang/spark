@@ -40,4 +40,29 @@ class CreateTableConstraintSuite extends QueryTest with CommandSuiteBase with DD
       assert(constraint.predicate().toString() == "id > 0")
     }
   }
+
+  test("Create table with two check constraints") {
+    withNamespaceAndTable("ns", "tbl", catalog) { t =>
+      sql(
+        s"""
+           |CREATE TABLE $t (id bigint, data string) $defaultUsing
+           | CONSTRAINT c1 CHECK (id > 0)
+           | CONSTRAINT c2 CHECK (data = 'foo')""".stripMargin)
+      val constraints = loadTable(catalog, "ns", "tbl").constraints
+      assert(constraints.length == 2)
+      assert(constraints.head.isInstanceOf[Check])
+      val constraint = constraints.head.asInstanceOf[Check]
+
+      assert(constraint.name == "c1")
+      assert(constraint.sql == "id>0")
+      assert(constraint.predicate().toString() == "id > 0")
+
+      assert(constraints(1).isInstanceOf[Check])
+      val constraint2 = constraints(1).asInstanceOf[Check]
+
+      assert(constraint2.name == "c2")
+      assert(constraint2.sql == "data='foo'")
+      assert(constraint2.predicate().toString() == "data = 'foo'")
+    }
+  }
 }
