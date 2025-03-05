@@ -20,7 +20,7 @@ package org.apache.spark.sql
 import java.util.Collections
 
 import org.apache.spark.{SparkConf, SparkRuntimeException}
-import org.apache.spark.sql.connector.catalog.{Column => ColumnV2, Identifier, InMemoryTableCatalog}
+import org.apache.spark.sql.connector.catalog.{Column => ColumnV2, Constraint, Identifier, InMemoryTableCatalog}
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.{SharedSparkSession, SQLTestUtils}
@@ -214,7 +214,8 @@ class RuntimeNullChecksV2Writes extends QueryTest with SQLTestUtils with SharedS
           ColumnV2.create("i", IntegerType),
           ColumnV2.create("arr", ArrayType(structType, containsNull = false))),
         partitions = Array.empty[Transform],
-        properties = Collections.emptyMap[String, String])
+        properties = Collections.emptyMap[String, String],
+        constraints = Array.empty[Constraint])
 
       if (byName) {
         val inputDF = sql("SELECT 1 AS i, null AS arr")
@@ -261,7 +262,8 @@ class RuntimeNullChecksV2Writes extends QueryTest with SQLTestUtils with SharedS
           ColumnV2.create("i", IntegerType),
           ColumnV2.create("arr", ArrayType(structType, containsNull = true))),
         partitions = Array.empty[Transform],
-        properties = Collections.emptyMap[String, String])
+        properties = Collections.emptyMap[String, String],
+        constraints = Array.empty[Constraint])
 
       if (byName) {
         val inputDF = sql(
@@ -315,7 +317,8 @@ class RuntimeNullChecksV2Writes extends QueryTest with SQLTestUtils with SharedS
           ColumnV2.create("i", IntegerType),
           ColumnV2.create("m", MapType(IntegerType, IntegerType, valueContainsNull = false))),
         partitions = Array.empty[Transform],
-        properties = Collections.emptyMap[String, String])
+        properties = Collections.emptyMap[String, String],
+        constraints = Array.empty[Constraint])
 
       if (byName) {
         val inputDF = sql("SELECT 1 AS i, null AS m")
@@ -354,7 +357,8 @@ class RuntimeNullChecksV2Writes extends QueryTest with SQLTestUtils with SharedS
           ColumnV2.create("i", IntegerType),
           ColumnV2.create("m", MapType(structType, structType, valueContainsNull = true))),
         partitions = Array.empty[Transform],
-        properties = Collections.emptyMap[String, String])
+        properties = Collections.emptyMap[String, String],
+        constraints = Array.empty[Constraint])
 
       if (byName) {
         val inputDF = sql("SELECT 1 AS i, map(named_struct('x', 1, 'y', 1), null) AS m")

@@ -231,6 +231,30 @@ public interface TableCatalog extends CatalogPlugin {
   }
 
   /**
+   * Create a table in the catalog.
+   *
+   * @param ident a table identifier
+   * @param columns the columns of the new table.
+   * @param partitions transforms to use for partitioning data in the table
+   * @param properties a string map of table properties
+   * @param constraints constraints for the new table
+   * @return metadata for the new table. This can be null if getting the metadata for the new table
+   *         is expensive. Spark will call {@link #loadTable(Identifier)} if needed (e.g. CTAS).
+   *
+   * @throws TableAlreadyExistsException If a table or view already exists for the identifier
+   * @throws UnsupportedOperationException If a requested partition transform is not supported
+   * @throws NoSuchNamespaceException If the identifier namespace does not exist (optional)
+   */
+  default Table createTable(
+      Identifier ident,
+      Column[] columns,
+      Transform[] partitions,
+      Map<String, String> properties,
+      Constraint[] constraints) throws TableAlreadyExistsException, NoSuchNamespaceException {
+    return createTable(ident, CatalogV2Util.v2ColumnsToStructType(columns), partitions, properties);
+  }
+
+  /**
    * If true, mark all the fields of the query schema as nullable when executing
    * CREATE/REPLACE TABLE ... AS SELECT ... and creating the table.
    */

@@ -87,11 +87,13 @@ class BasicInMemoryTableCatalog extends TableCatalog {
       ident: Identifier,
       columns: Array[Column],
       partitions: Array[Transform],
-      properties: util.Map[String, String]): Table = {
+      properties: util.Map[String, String],
+      constraints: Array[Constraint]): Table = {
     createTable(ident, columns, partitions, properties, Distributions.unspecified(),
-      Array.empty, None, None)
+      Array.empty, None, None, constraints)
   }
 
+  // scalastyle:off argcount
   def createTable(
       ident: Identifier,
       columns: Array[Column],
@@ -101,8 +103,10 @@ class BasicInMemoryTableCatalog extends TableCatalog {
       ordering: Array[SortOrder],
       requiredNumPartitions: Option[Int],
       advisoryPartitionSize: Option[Long],
+      constraints: Array[Constraint],
       distributionStrictlyRequired: Boolean = true,
       numRowsPerSplit: Int = Int.MaxValue): Table = {
+    // scalastyle:on argcount
     val schema = CatalogV2Util.v2ColumnsToStructType(columns)
     if (tables.containsKey(ident)) {
       throw new TableAlreadyExistsException(ident.asMultipartIdentifier)
@@ -113,7 +117,7 @@ class BasicInMemoryTableCatalog extends TableCatalog {
     val tableName = s"$name.${ident.quoted}"
     val table = new InMemoryTable(tableName, schema, partitions, properties, distribution,
       ordering, requiredNumPartitions, advisoryPartitionSize, distributionStrictlyRequired,
-      numRowsPerSplit)
+      numRowsPerSplit, constraints)
     tables.put(ident, table)
     namespaces.putIfAbsent(ident.namespace.toList, Map())
     table

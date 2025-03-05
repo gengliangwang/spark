@@ -238,7 +238,7 @@ class KeyGroupedPartitioningSuite extends DistributionAndOrderingSuiteBase {
       catalog: InMemoryTableCatalog = catalog): Unit = {
     catalog.createTable(Identifier.of(Array("ns"), table),
       columns, partitions, emptyProps, Distributions.unspecified(), Array.empty, None, None,
-      numRowsPerSplit = 1)
+      Array.empty, numRowsPerSplit = 1)
   }
 
   private val customers: String = "customers"

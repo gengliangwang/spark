@@ -48,7 +48,8 @@ case class ReplaceTableExec(
     } else if (!orCreate) {
       throw QueryCompilationErrors.cannotReplaceMissingTableError(ident)
     }
-    catalog.createTable(ident, columns, partitioning.toArray, tableProperties.asJava)
+    catalog.createTable(ident, columns, partitioning.toArray, tableProperties.asJava,
+      tableSpec.constraints.toArray)
     Seq.empty
   }
 
