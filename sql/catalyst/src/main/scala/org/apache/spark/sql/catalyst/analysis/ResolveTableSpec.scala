@@ -18,7 +18,8 @@
 package org.apache.spark.sql.catalyst.analysis
 
 import org.apache.spark.SparkThrowable
-import org.apache.spark.sql.catalyst.expressions.{Expression, Literal}
+import org.apache.spark.sql.catalyst.analysis.SimpleAnalyzer.resolveExpressionByPlanOutput
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Constraints, Expression, Literal}
 import org.apache.spark.sql.catalyst.optimizer.ComputeCurrentTime
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -46,20 +47,30 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
 
     preparedPlan.resolveOperatorsWithPruning(_.containsAnyPattern(COMMAND), ruleId) {
       case t: CreateTable =>
-        resolveTableSpec(t, t.tableSpec, s => t.copy(tableSpec = s))
+        resolveTableSpec(t, t.tableSpec,
+          fakeProjectFromColumns(t.columns), s => t.copy(tableSpec = s))
       case t: CreateTableAsSelect =>
-        resolveTableSpec(t, t.tableSpec, s => t.copy(tableSpec = s))
+        resolveTableSpec(t, t.tableSpec, None, s => t.copy(tableSpec = s))
       case t: ReplaceTable =>
-        resolveTableSpec(t, t.tableSpec, s => t.copy(tableSpec = s))
+        resolveTableSpec(t, t.tableSpec,
+          fakeProjectFromColumns(t.columns), s => t.copy(tableSpec = s))
       case t: ReplaceTableAsSelect =>
-        resolveTableSpec(t, t.tableSpec, s => t.copy(tableSpec = s))
+        resolveTableSpec(t, t.tableSpec, None, s => t.copy(tableSpec = s))
     }
+  }
+
+  private def fakeProjectFromColumns(columns: Seq[ColumnDefinition]): Option[Project] = {
+    val fakeProjectList = columns.map { col =>
+      AttributeReference(col.name, col.dataType)()
+    }
+    Some(Project(fakeProjectList, OneRowRelation()))
   }
 
   /** Helper method to resolve the table specification within a logical plan. */
   private def resolveTableSpec(
       input: LogicalPlan,
       tableSpec: TableSpecBase,
+      fakeProject: Option[Project],
       withNewSpec: TableSpecBase => LogicalPlan): LogicalPlan = tableSpec match {
     case u: UnresolvedTableSpec if u.optionExpression.resolved =>
       val newOptions: Seq[(String, String)] = u.optionExpression.options.map {
@@ -86,6 +97,13 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
           }
           (key, newValue)
       }
+      val newConstraints = if (fakeProject.isDefined) {
+        resolveExpressionByPlanOutput(u.constraints, fakeProject.get, throws = true)
+          .asInstanceOf[Constraints]
+      } else {
+        u.constraints
+      }
+      // assert(newConstraints.childrenResolved)
       val newTableSpec = TableSpec(
         properties = u.properties,
         provider = u.provider,
@@ -95,7 +113,7 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
         collation = u.collation,
         serde = u.serde,
         external = u.external,
-        constraints = u.constraints.asConstraintList)
+        constraints = newConstraints.asConstraintList)
       withNewSpec(newTableSpec)
     case _ =>
       input

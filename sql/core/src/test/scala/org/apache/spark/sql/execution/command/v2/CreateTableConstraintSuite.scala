@@ -65,4 +65,13 @@ class CreateTableConstraintSuite extends QueryTest with CommandSuiteBase with DD
       assert(constraint2.predicate().toString() == "data = 'foo'")
     }
   }
+
+  test("Create table with UnresolvedAttribute in check constraint") {
+    withNamespaceAndTable("ns", "tbl", catalog) { t =>
+      sql(
+        s"""
+           |CREATE TABLE $t (id bigint, data string) $defaultUsing
+           | CONSTRAINT c2 CHECK (abc = 'foo')""".stripMargin)
+    }
+  }
 }
