@@ -18,7 +18,6 @@
 package org.apache.spark.sql.catalyst.analysis
 
 import org.apache.spark.SparkThrowable
-import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.optimizer.ComputeCurrentTime
 import org.apache.spark.sql.catalyst.plans.logical._
@@ -75,12 +74,7 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
         val alias = Alias(c.child, c.name)()
         val project = Project(Seq(alias), fakeRelation)
         val analyzed = DefaultColumnAnalyzer.execute(project)
-        try {
-          DefaultColumnAnalyzer.checkAnalysis(analyzed)
-        } catch {
-          case e: AnalysisException =>
-            throw e.withPosition(c.origin)
-        }
+        DefaultColumnAnalyzer.checkAnalysis0(analyzed)
 
         val analyzedExpression = analyzed collectFirst {
           case Project(Seq(Alias(e: Expression, _)), _) => e

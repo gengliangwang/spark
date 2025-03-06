@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.execution.command.v2
 
-import org.apache.spark.sql.QueryTest
+import org.apache.spark.sql.{AnalysisException, QueryTest}
 import org.apache.spark.sql.connector.catalog.Constraint.Check
 import org.apache.spark.sql.execution.command.DDLCommandTestUtils
 
@@ -68,10 +68,19 @@ class CreateTableConstraintSuite extends QueryTest with CommandSuiteBase with DD
 
   test("Create table with UnresolvedAttribute in check constraint") {
     withNamespaceAndTable("ns", "tbl", catalog) { t =>
-      sql(
+      val query =
         s"""
            |CREATE TABLE $t (id bigint, data string) $defaultUsing
-           | CONSTRAINT c2 CHECK (abc = 'foo')""".stripMargin)
+           | CONSTRAINT c2 CHECK (abc = 'foo')""".stripMargin
+      val e = intercept[AnalysisException] {
+        sql(query)
+      }
+      checkError(
+        exception = e,
+        condition = "UNRESOLVED_COLUMN.WITH_SUGGESTION",
+        parameters = Map("objectName" -> "`abc`", "proposal" -> "`id`, `data`"),
+        sqlState = "42703",
+        context = ExpectedContext("abc", 89, 91)) // UnresolvedAttribute abc
     }
   }
 }
