@@ -37,7 +37,7 @@ class CreateTableConstraintSuite extends QueryTest with CommandSuiteBase with DD
 
       assert(constraint.name == "c1")
       assert(constraint.sql == "id>0")
-      assert(constraint.predicate().toString() == "id > 0")
+      assert(constraint.predicate().toString() == "id > CAST(0 AS long)")
     }
   }
 
@@ -55,7 +55,7 @@ class CreateTableConstraintSuite extends QueryTest with CommandSuiteBase with DD
 
       assert(constraint.name == "c1")
       assert(constraint.sql == "id>0")
-      assert(constraint.predicate().toString() == "id > 0")
+      assert(constraint.predicate().toString() == "id > CAST(0 AS long)")
 
       assert(constraints(1).isInstanceOf[Check])
       val constraint2 = constraints(1).asInstanceOf[Check]

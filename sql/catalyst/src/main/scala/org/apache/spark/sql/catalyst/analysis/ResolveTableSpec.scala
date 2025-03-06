@@ -18,12 +18,13 @@
 package org.apache.spark.sql.catalyst.analysis
 
 import org.apache.spark.SparkThrowable
-import org.apache.spark.sql.catalyst.analysis.SimpleAnalyzer.resolveExpressionByPlanOutput
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Constraints, Expression, Literal}
+import org.apache.spark.sql.AnalysisException
+import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.optimizer.ComputeCurrentTime
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreePattern.COMMAND
+import org.apache.spark.sql.catalyst.util.ResolveDefaultColumns.DefaultColumnAnalyzer
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{ArrayType, MapType, StructType}
@@ -48,29 +49,53 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
     preparedPlan.resolveOperatorsWithPruning(_.containsAnyPattern(COMMAND), ruleId) {
       case t: CreateTable =>
         resolveTableSpec(t, t.tableSpec,
-          fakeProjectFromColumns(t.columns), s => t.copy(tableSpec = s))
+          fakeRelationFromColumns(t.columns), s => t.copy(tableSpec = s))
       case t: CreateTableAsSelect =>
         resolveTableSpec(t, t.tableSpec, None, s => t.copy(tableSpec = s))
       case t: ReplaceTable =>
         resolveTableSpec(t, t.tableSpec,
-          fakeProjectFromColumns(t.columns), s => t.copy(tableSpec = s))
+          fakeRelationFromColumns(t.columns), s => t.copy(tableSpec = s))
       case t: ReplaceTableAsSelect =>
         resolveTableSpec(t, t.tableSpec, None, s => t.copy(tableSpec = s))
     }
   }
 
-  private def fakeProjectFromColumns(columns: Seq[ColumnDefinition]): Option[Project] = {
-    val fakeProjectList = columns.map { col =>
+  private def fakeRelationFromColumns(columns: Seq[ColumnDefinition]): Option[LogicalPlan] = {
+    val attributeList = columns.map { col =>
       AttributeReference(col.name, col.dataType)()
     }
-    Some(Project(fakeProjectList, OneRowRelation()))
+    Some(LocalRelation(attributeList))
+  }
+
+  private def analyzeConstraints(
+      constraints: Constraints,
+      fakeRelation: LogicalPlan): Constraints = {
+    val analyzedExpressions = constraints.children.map {
+      case c: CheckConstraint =>
+        val alias = Alias(c.child, c.name)()
+        val project = Project(Seq(alias), fakeRelation)
+        val analyzed = DefaultColumnAnalyzer.execute(project)
+        try {
+          DefaultColumnAnalyzer.checkAnalysis(analyzed)
+        } catch {
+          case e: AnalysisException =>
+            throw e.withPosition(c.origin)
+        }
+
+        val analyzedExpression = analyzed collectFirst {
+          case Project(Seq(Alias(e: Expression, _)), _) => e
+        }
+        c.withNewChildren(Seq(analyzedExpression.get))
+      case other => other
+    }
+    Constraints(analyzedExpressions)
   }
 
   /** Helper method to resolve the table specification within a logical plan. */
   private def resolveTableSpec(
       input: LogicalPlan,
       tableSpec: TableSpecBase,
-      fakeProject: Option[Project],
+      fakeRelation: Option[LogicalPlan],
       withNewSpec: TableSpecBase => LogicalPlan): LogicalPlan = tableSpec match {
     case u: UnresolvedTableSpec if u.optionExpression.resolved =>
       val newOptions: Seq[(String, String)] = u.optionExpression.options.map {
@@ -97,13 +122,12 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
           }
           (key, newValue)
       }
-      val newConstraints = if (fakeProject.isDefined) {
-        resolveExpressionByPlanOutput(u.constraints, fakeProject.get, throws = true)
-          .asInstanceOf[Constraints]
+      val newConstraints = if (fakeRelation.isDefined) {
+        analyzeConstraints(u.constraints, fakeRelation.get)
       } else {
         u.constraints
       }
-      // assert(newConstraints.childrenResolved)
+      assert(newConstraints.childrenResolved)
       val newTableSpec = TableSpec(
         properties = u.properties,
         provider = u.provider,
