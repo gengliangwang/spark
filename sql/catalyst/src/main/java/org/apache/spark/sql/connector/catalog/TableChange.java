@@ -22,6 +22,7 @@ import java.util.Objects;
 import javax.annotation.Nullable;
 
 import org.apache.spark.annotation.Evolving;
+import org.apache.spark.sql.connector.catalog.constraints.Constraint;
 import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.types.DataType;
 

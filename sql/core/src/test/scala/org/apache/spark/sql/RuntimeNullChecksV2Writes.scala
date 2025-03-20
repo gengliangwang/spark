@@ -20,7 +20,8 @@ package org.apache.spark.sql
 import java.util.Collections
 
 import org.apache.spark.{SparkConf, SparkRuntimeException}
-import org.apache.spark.sql.connector.catalog.{Column => ColumnV2, Constraint, Identifier, InMemoryTableCatalog}
+import org.apache.spark.sql.connector.catalog.{Column => ColumnV2, Identifier, InMemoryTableCatalog}
+import org.apache.spark.sql.connector.catalog.constraints.Constraint
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.{SharedSparkSession, SQLTestUtils}

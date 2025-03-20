@@ -18,7 +18,7 @@
 package org.apache.spark.sql.execution.command.v2
 
 import org.apache.spark.sql.{AnalysisException, QueryTest}
-import org.apache.spark.sql.connector.catalog.Constraint.Check
+import org.apache.spark.sql.connector.catalog.constraints.Constraint.Check
 import org.apache.spark.sql.execution.command.DDLCommandTestUtils
 
 class CreateTableConstraintSuite extends QueryTest with CommandSuiteBase with DDLCommandTestUtils {

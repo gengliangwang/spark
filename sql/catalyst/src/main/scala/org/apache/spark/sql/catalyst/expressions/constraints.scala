@@ -19,7 +19,7 @@ package org.apache.spark.sql.catalyst.expressions
 import org.apache.spark.SparkUnsupportedOperationException
 import org.apache.spark.sql.catalyst.trees.UnaryLike
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
-import org.apache.spark.sql.connector.catalog.Constraint
+import org.apache.spark.sql.connector.catalog.constraints.Constraint
 import org.apache.spark.sql.types.{DataType, StringType}
 
 trait ConstraintExpression extends Expression with Unevaluable {
