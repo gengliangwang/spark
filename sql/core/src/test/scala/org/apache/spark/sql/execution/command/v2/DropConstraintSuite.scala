@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution.command.v2
 
 import org.apache.spark.sql.{AnalysisException, QueryTest}
-import org.apache.spark.sql.connector.catalog.constraints.Constraint.Check
+import org.apache.spark.sql.connector.catalog.constraints.Check
 import org.apache.spark.sql.execution.command.DDLCommandTestUtils
 
 class DropConstraintSuite extends QueryTest with CommandSuiteBase with DDLCommandTestUtils {

@@ -38,7 +38,14 @@ case class CheckConstraint(
 
   def asConstraint: Constraint = {
     val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
-    Constraint.check(name, sql, predicate)
+    Constraint
+      .check(name)
+      .sql(sql)
+      .predicate(predicate)
+      .rely(true)
+      .enforced(true)
+      .validationStatus(Constraint.ValidationStatus.VALID)
+      .build()
   }
 
   override protected def withNewChildInternal(newChild: Expression): Expression =
