@@ -1193,14 +1193,14 @@ trait CheckAnalysis extends LookupCatalog with QueryErrorsBase with PlanToString
 
       case addConstraint @ AddCheckConstraint(table: ResolvedTable, constraintExpr) =>
         if (!constraintExpr.resolved) {
-          constraintExpr.failAnalysis(
+          constraintExpr.child.failAnalysis(
             errorClass = "INVALID_CHECK_CONSTRAINT.UNRESOLVED",
             messageParameters = Map.empty
           )
         }
 
         if (!constraintExpr.deterministic) {
-          constraintExpr.failAnalysis(
+          constraintExpr.child.failAnalysis(
             errorClass = "INVALID_CHECK_CONSTRAINT.NONDETERMINISTIC",
             messageParameters = Map.empty
           )

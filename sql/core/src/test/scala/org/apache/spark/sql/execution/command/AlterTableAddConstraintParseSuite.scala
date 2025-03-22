@@ -37,7 +37,7 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
         "ALTER TABLE ... ADD CONSTRAINT"),
       CheckConstraint(
         "c1",
-        "d > 0",
+        "d>0",
         GreaterThan(UnresolvedAttribute("d"), Literal(0))))
     comparePlans(parsed, expected)
   }
@@ -47,10 +47,10 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
       """
         |ALTER TABLE a.b.c ADD CONSTRAINT c1-c3 CHECK (d > 0)
         |""".stripMargin
-    val msg = intercept[ParseException] {
+    val e = intercept[ParseException] {
       parsePlan(sql)
-    }.getMessage
-    assert(msg.contains("Syntax error at or near '-'."))
+    }
+    checkError(e, "INVALID_IDENTIFIER", "42602", Map("ident" -> "c1-c3"))
   }
 
   test("Add invalid check constraint expression") {

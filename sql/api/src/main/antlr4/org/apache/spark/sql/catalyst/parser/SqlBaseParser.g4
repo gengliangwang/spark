@@ -1522,11 +1522,36 @@ number
     ;
 
 constraintSpec
-    : CONSTRAINT constraintName=errorCapturingIdentifier constraintExpression
+    : constraintName? constraintExpression constraintCharacteristics?
+    ;
+
+constraintName
+    : CONSTRAINT name=errorCapturingIdentifier
     ;
 
 constraintExpression
-    : CHECK '(' booleanExpression ')'                                 #checkConstraint
+    : checkConstraint
+    | uniqueConstraint
+    | foreignKeyConstraint
+    ;
+
+checkConstraint
+    : CHECK LEFT_PAREN (expr=booleanExpression) RIGHT_PAREN
+    ;
+
+uniqueConstraint
+    : UNIQUE identifierList       #uniqueConstraintClause
+    | PRIMARY KEY identifierList  #primaryKeyConstraintClause
+    ;
+
+foreignKeyConstraint
+    : FOREIGN KEY identifierList REFERENCES table=multipartIdentifier identifierList
+    ;
+
+constraintCharacteristics
+    : NOT? ENFORCED
+    | RELY
+    | NORELY
     ;
 
 alterColumnSpecList
@@ -1686,6 +1711,7 @@ ansiNonReserved
     | DOUBLE
     | DROP
     | ELSEIF
+    | ENFORCED
     | ESCAPED
     | EVOLUTION
     | EXCHANGE
@@ -1774,6 +1800,8 @@ ansiNonReserved
     | NANOSECONDS
     | NO
     | NONE
+    | NORELY
+    | NOVALIDATE
     | NULLS
     | NUMERIC
     | OF
@@ -1805,6 +1833,7 @@ ansiNonReserved
     | RECOVER
     | REDUCE
     | REFRESH
+    | RELY
     | RENAME
     | REPAIR
     | REPEAT
@@ -1888,6 +1917,7 @@ ansiNonReserved
     | UNTIL
     | UPDATE
     | USE
+    | VALIDATE
     | VALUE
     | VALUES
     | VARCHAR

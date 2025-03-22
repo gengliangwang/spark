@@ -28,6 +28,8 @@ trait ConstraintExpression extends Expression with Unevaluable {
   override def dataType: DataType = StringType
 
   def asConstraint: Constraint
+
+  def withName(name: String): ConstraintExpression
 }
 
 case class CheckConstraint(
@@ -50,6 +52,8 @@ case class CheckConstraint(
 
   override protected def withNewChildInternal(newChild: Expression): Expression =
     copy(child = newChild)
+
+  override def withName(name: String): ConstraintExpression = copy(name = name)
 }
 
 /*

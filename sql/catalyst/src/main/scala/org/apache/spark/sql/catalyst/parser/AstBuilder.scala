@@ -5241,17 +5241,29 @@ class AstBuilder extends DataTypeAstBuilder
       AlterTableCollation(table, visitCollationSpec(ctx.collationSpec()))
     }
 
-  override def visitConstraintSpec(ctx: ConstraintSpecContext): ConstraintExpression = {
-    ctx.constraintExpression() match {
-      case c: CheckConstraintContext =>
-        CheckConstraint(
-          name = ctx.constraintName.getText,
-          sql = c.booleanExpression().getText,
-          child = expression(c.booleanExpression())
-        )
-      case other =>
-        throw QueryParsingErrors.constraintNotSupportedError(ctx, other.getText)
-    }
+  override def visitConstraintSpec(ctx: ConstraintSpecContext): ConstraintExpression =
+    withOrigin(ctx) {
+      val name = visitConstraintName(ctx.constraintName())
+      val expr =
+        visitConstraintExpression(ctx.constraintExpression()).asInstanceOf[ConstraintExpression]
+      if (name != null) {
+        expr.withName(name)
+      } else {
+        expr
+      }
+  }
+
+  override def visitConstraintName(ctx: ConstraintNameContext): String = {
+    ctx.name.getText
+  }
+
+  override def visitCheckConstraint(ctx: CheckConstraintContext): CheckConstraint =
+    withOrigin(ctx) {
+    CheckConstraint(
+      name = "",
+      sql = ctx.expr.getText,
+      child = expression(ctx.booleanExpression())
+    )
   }
 
   /**
