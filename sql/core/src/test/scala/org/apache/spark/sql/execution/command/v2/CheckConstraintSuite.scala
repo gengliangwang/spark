@@ -92,8 +92,8 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
       val constraint = getCheckConstraint(table)
       assert(constraint.name() == "c1")
       assert(constraint.toDDL ==
-        "CONSTRAINT c1 CHECK from_json(j,'a INT').a>1 ENFORCED VALID RELY")
-      assert(constraint.sql() == "from_json(j,'a INT').a>1")
+        "CONSTRAINT c1 CHECK from_json(j, 'a INT').a > 1 ENFORCED VALID RELY")
+      assert(constraint.sql() == "from_json(j, 'a INT').a > 1")
       assert(constraint.predicate() == null)
     }
   }
@@ -107,7 +107,7 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
       val table = loadTable(catalog, "ns", "tbl")
       val constraint = getCheckConstraint(table)
       assert(constraint.name() == "c1")
-      assert(constraint.toDDL == "CONSTRAINT c1 CHECK id>0 ENFORCED VALID RELY")
+      assert(constraint.toDDL == "CONSTRAINT c1 CHECK id > 0 ENFORCED VALID RELY")
     }
   }
 
@@ -127,7 +127,7 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
           condition = "CONSTRAINT_ALREADY_EXISTS",
           sqlState = "42710",
           parameters = Map("constraintName" -> "abc",
-            "oldConstraint" -> "CONSTRAINT abc CHECK id>0 ENFORCED VALID RELY")
+            "oldConstraint" -> "CONSTRAINT abc CHECK id > 0 ENFORCED VALID RELY")
         )
       }
     }

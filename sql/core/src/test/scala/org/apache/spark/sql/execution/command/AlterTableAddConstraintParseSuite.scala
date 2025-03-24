@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedAttribute, UnresolvedTable}
-import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, GreaterThan, Literal}
+import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, ConstraintCharacteristic, GreaterThan, Literal}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.plans.logical.AddCheckConstraint
@@ -37,7 +37,7 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
         "ALTER TABLE ... ADD CONSTRAINT"),
       CheckConstraint(
         child = GreaterThan(UnresolvedAttribute("d"), Literal(0)),
-        condition = "d>0",
+        condition = "d > 0",
         name = "c1"
       ))
     comparePlans(parsed, expected)
@@ -63,5 +63,28 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
       parsePlan(sql)
     }.getMessage
     assert(msg.contains("Syntax error at or near ')'"))
+  }
+
+  test("Add valid constraint characteristic") {
+    val sql =
+      """
+        |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0) NOT ENFORCED
+        |""".stripMargin
+    val parsed = parsePlan(sql)
+    val characteristic = ConstraintCharacteristic(
+      enforced = Some(false),
+      rely = None
+    )
+    val expected = AddCheckConstraint(
+      UnresolvedTable(
+        Seq("a", "b", "c"),
+        "ALTER TABLE ... ADD CONSTRAINT"),
+      CheckConstraint(
+        child = GreaterThan(UnresolvedAttribute("d"), Literal(0)),
+        condition = "d > 0",
+        name = "c1",
+        characteristic = characteristic
+      ))
+    comparePlans(parsed, expected)
   }
 }

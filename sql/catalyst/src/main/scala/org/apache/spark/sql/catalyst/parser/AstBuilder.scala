@@ -118,6 +118,23 @@ class AstBuilder extends DataTypeAstBuilder
   }
 
   /**
+   * Retrieves the original input text for a given parser context, preserving all whitespace and
+   * formatting.
+   *
+   * ANTLR's default getText method removes whitespace because lexer rules typically skip it.
+   * This utility method extracts the exact text from the original input stream, using token
+   * indices.
+   *
+   * @param ctx The parser context to retrieve original text from.
+   * @return The original input text, including all whitespaces and formatting.
+   */
+  private def getOriginalText(ctx: ParserRuleContext): String = {
+    ctx.getStart.getInputStream.getText(
+      new Interval(ctx.getStart.getStartIndex, ctx.getStop.getStopIndex)
+    )
+  }
+
+  /**
    * Override the default behavior for all visit methods. This will only return a non-null result
    * when the context has only one child. This is done because there is no generic method to
    * combine the results of the context children. In all other cases null is returned.
@@ -3946,9 +3963,7 @@ class AstBuilder extends DataTypeAstBuilder
     // use `Expression.sql` to avoid storing incorrect text caused by bugs in any expression's
     // `sql` method. Note: `exprCtx.getText` returns a string without spaces, so we need to
     // get the text from the underlying char stream instead.
-    val start = exprCtx.getStart.getStartIndex
-    val end = exprCtx.getStop.getStopIndex
-    val originalSQL = exprCtx.getStart.getInputStream.getText(new Interval(start, end))
+    val originalSQL = getOriginalText(exprCtx)
     DefaultValueExpression(expr, originalSQL)
   }
 
@@ -5261,9 +5276,10 @@ class AstBuilder extends DataTypeAstBuilder
 
   override def visitCheckConstraint(ctx: CheckConstraintContext): CheckConstraint =
     withOrigin(ctx) {
+      val condition = getOriginalText(ctx.expr)
       CheckConstraint(
         child = expression(ctx.booleanExpression()),
-        condition = ctx.expr.getText)
+        condition = condition)
     }
 
   private def visitConstraintCharacteristic(
@@ -5272,7 +5288,7 @@ class AstBuilder extends DataTypeAstBuilder
     var rely: Option[String] = None
     ctx.constraintCharacteristic().asScala.foreach {
       case e if e.enforcedCharacteristic() != null =>
-        val text = e.enforcedCharacteristic().getText.toUpperCase(Locale.ROOT)
+        val text = getOriginalText(e.enforcedCharacteristic()).toUpperCase(Locale.ROOT)
         if (enforcement.isDefined) {
           val invalidCharacteristics = s"${enforcement.get}, $text"
           throw QueryParsingErrors.invalidConstraintCharacteristics(ctx, invalidCharacteristics)
