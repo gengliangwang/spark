@@ -2331,6 +2331,11 @@
         "message" : [
           "It contains nondeterministic expression."
         ]
+      },
+      "MISSING_NAME": {
+        "message": [
+          "The check constraint must have a name."
+        ]
       }
     },
     "sqlState": "42621"
@@ -2359,6 +2364,12 @@
       }
     },
     "sqlState" : "22022"
+  },
+  "INVALID_CONSTRAINT_CHARACTERISTICS": {
+    "message": [
+      "Constraint characteristics [<characteristics>] are duplicated or conflict with each other."
+    ],
+    "sqlState": "42613"
   },
   "INVALID_CORRUPT_RECORD_TYPE" : {
     "message" : [

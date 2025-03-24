@@ -49,17 +49,24 @@ class CreateTableConstraintParseSuite extends AnalysisTest with SharedSparkSessi
 
   test("Create table with one check constraint") {
     val constraintStr = "CONSTRAINT c1 CHECK (a > 0)"
-    val constraint = CheckConstraint("c1", "a>0", GreaterThan(UnresolvedAttribute("a"), Literal(0)))
+    val constraint = CheckConstraint(
+      child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
+      condition = "a>0",
+      name = "c1")
     val constraints = Constraints(Seq(constraint))
     verifyConstraints(constraintStr, constraints)
   }
 
   test("Create table with two check constraints") {
     val constraintStr = "CONSTRAINT c1 CHECK (a > 0) CONSTRAINT c2 CHECK (b = 'foo')"
-    val constraint1 =
-      CheckConstraint("c1", "a>0", GreaterThan(UnresolvedAttribute("a"), Literal(0)))
-    val constraint2 =
-      CheckConstraint("c2", "b='foo'", EqualTo(UnresolvedAttribute("b"), Literal("foo")))
+    val constraint1 = CheckConstraint(
+      child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
+      condition = "a>0",
+      name = "c1")
+    val constraint2 = CheckConstraint(
+      child = EqualTo(UnresolvedAttribute("b"), Literal("foo")),
+      condition = "b='foo",
+      name = "c2")
     val constraints = Constraints(Seq(constraint1, constraint2))
     verifyConstraints(constraintStr, constraints)
   }

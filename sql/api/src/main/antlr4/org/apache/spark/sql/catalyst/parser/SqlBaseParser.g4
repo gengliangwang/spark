@@ -1522,7 +1522,7 @@ number
     ;
 
 constraintSpec
-    : constraintName? constraintExpression constraintCharacteristics?
+    : constraintName? constraintExpression constraintCharacteristic*
     ;
 
 constraintName
@@ -1532,6 +1532,7 @@ constraintName
 constraintExpression
     : checkConstraint
     | uniqueConstraint
+    | primaryKeyConstraint
     | foreignKeyConstraint
     ;
 
@@ -1540,17 +1541,29 @@ checkConstraint
     ;
 
 uniqueConstraint
-    : UNIQUE identifierList       #uniqueConstraintClause
-    | PRIMARY KEY identifierList  #primaryKeyConstraintClause
+    : UNIQUE identifierList
+    ;
+
+primaryKeyConstraint
+    : PRIMARY KEY identifierList
     ;
 
 foreignKeyConstraint
     : FOREIGN KEY identifierList REFERENCES table=multipartIdentifier identifierList
     ;
 
-constraintCharacteristics
-    : NOT? ENFORCED
-    | RELY
+constraintCharacteristic
+    : enforcedCharacteristic
+    | relyCharacteristic
+    ;
+
+enforcedCharacteristic
+    : ENFORCED
+    | NOT ENFORCED
+    ;
+
+relyCharacteristic
+    : RELY
     | NORELY
     ;
 

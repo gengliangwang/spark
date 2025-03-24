@@ -17,6 +17,7 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.SparkUnsupportedOperationException
+import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.trees.UnaryLike
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
 import org.apache.spark.sql.connector.catalog.constraints.Constraint
@@ -29,23 +30,45 @@ trait ConstraintExpression extends Expression with Unevaluable {
 
   def asConstraint: Constraint
 
-  def withName(name: String): ConstraintExpression
+  def withNameAndCharacteristic(
+      name: String,
+      c: ConstraintCharacteristic): ConstraintExpression
+
+  def name: String
+
+  def characteristic: ConstraintCharacteristic
+
+  def defaultName: String
+
+  def defaultConstraintCharacteristic: ConstraintCharacteristic
+}
+
+case class ConstraintCharacteristic(enforced: Option[Boolean], rely: Option[Boolean])
+
+object ConstraintCharacteristic {
+  val empty: ConstraintCharacteristic = ConstraintCharacteristic(None, None)
 }
 
 case class CheckConstraint(
-    name: String,
-    override val sql: String,
-    child: Expression) extends ConstraintExpression
+    child: Expression,
+    condition: String,
+    override val name: String = null,
+    override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
+  extends ConstraintExpression
   with UnaryLike[Expression] {
 
   def asConstraint: Constraint = {
     val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
+    val rely = characteristic.rely.getOrElse(defaultConstraintCharacteristic.rely.get)
+    val enforced =
+      characteristic.enforced.getOrElse(defaultConstraintCharacteristic.enforced.get)
+    val constraintName = if (name == null) defaultName else name
     Constraint
-      .check(name)
-      .sql(sql)
+      .check(constraintName)
+      .sql(condition)
       .predicate(predicate)
-      .rely(true)
-      .enforced(true)
+      .rely(rely)
+      .enforced(enforced)
       .validationStatus(Constraint.ValidationStatus.VALID)
       .build()
   }
@@ -53,7 +76,21 @@ case class CheckConstraint(
   override protected def withNewChildInternal(newChild: Expression): Expression =
     copy(child = newChild)
 
-  override def withName(name: String): ConstraintExpression = copy(name = name)
+  override def withNameAndCharacteristic(
+      name: String,
+      c: ConstraintCharacteristic): ConstraintExpression = {
+    copy(name = name, characteristic = c)
+  }
+
+  override def defaultName: String =
+    throw new AnalysisException(
+      errorClass = "INVALID_CHECK_CONSTRAINT.MISSING_NAME",
+      messageParameters = Map.empty)
+
+  override def defaultConstraintCharacteristic: ConstraintCharacteristic =
+    ConstraintCharacteristic(enforced = Some(true), rely = Some(true))
+
+  override def sql: String = s"CONSTRAINT $name CHECK ($condition)"
 }
 
 /*

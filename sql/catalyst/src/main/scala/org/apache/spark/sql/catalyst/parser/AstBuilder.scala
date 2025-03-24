@@ -5243,14 +5243,16 @@ class AstBuilder extends DataTypeAstBuilder
 
   override def visitConstraintSpec(ctx: ConstraintSpecContext): ConstraintExpression =
     withOrigin(ctx) {
-      val name = visitConstraintName(ctx.constraintName())
+      val name = if (ctx.constraintName() != null) {
+        visitConstraintName(ctx.constraintName())
+      } else {
+        null
+      }
+      val constraintCharacteristic = visitConstraintCharacteristic(ctx)
       val expr =
         visitConstraintExpression(ctx.constraintExpression()).asInstanceOf[ConstraintExpression]
-      if (name != null) {
-        expr.withName(name)
-      } else {
-        expr
-      }
+
+      expr.withNameAndCharacteristic(name, constraintCharacteristic)
   }
 
   override def visitConstraintName(ctx: ConstraintNameContext): String = {
@@ -5259,11 +5261,35 @@ class AstBuilder extends DataTypeAstBuilder
 
   override def visitCheckConstraint(ctx: CheckConstraintContext): CheckConstraint =
     withOrigin(ctx) {
-    CheckConstraint(
-      name = "",
-      sql = ctx.expr.getText,
-      child = expression(ctx.booleanExpression())
-    )
+      CheckConstraint(
+        child = expression(ctx.booleanExpression()),
+        condition = ctx.expr.getText)
+    }
+
+  private def visitConstraintCharacteristic(
+      ctx: ConstraintSpecContext): ConstraintCharacteristic = {
+    var enforcement: Option[String] = None
+    var rely: Option[String] = None
+    ctx.constraintCharacteristic().asScala.foreach {
+      case e if e.enforcedCharacteristic() != null =>
+        val text = e.enforcedCharacteristic().getText.toUpperCase(Locale.ROOT)
+        if (enforcement.isDefined) {
+          val invalidCharacteristics = s"${enforcement.get}, $text"
+          throw QueryParsingErrors.invalidConstraintCharacteristics(ctx, invalidCharacteristics)
+        } else {
+          enforcement = Some(text)
+        }
+
+      case r if r.relyCharacteristic() != null =>
+        val text = r.relyCharacteristic().getText.toUpperCase(Locale.ROOT)
+        if (rely.isDefined) {
+          val invalidCharacteristics = s"${rely.get}, $text"
+          throw QueryParsingErrors.invalidConstraintCharacteristics(ctx, invalidCharacteristics)
+        } else {
+          rely = Some(text)
+        }
+    }
+    ConstraintCharacteristic(enforcement.map(_ == "ENFORCED"), rely.map(_ == "RELY"))
   }
 
   /**
