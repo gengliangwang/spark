@@ -78,10 +78,7 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
     assert(table.constraints.length == 1)
     assert(table.constraints.head.isInstanceOf[Check])
     table.constraints.head.asInstanceOf[Check]
-    val constraint = table.constraints.head.asInstanceOf[Check]
-    assert(constraint.rely())
-    assert(constraint.enforced())
-    constraint
+    table.constraints.head.asInstanceOf[Check]
   }
 
   test("Predicate should be null if it can't be converted to V2 predicate") {
@@ -98,16 +95,42 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
     }
   }
 
-  test("Add check constraint") {
-    withNamespaceAndTable("ns", "tbl", catalog) { t =>
-      sql(s"CREATE TABLE $t (id bigint, data string) $defaultUsing")
-      assert(loadTable(catalog, "ns", "tbl").constraints.isEmpty)
+  val validConstraintCharacteristics = Seq(
+    ("", "ENFORCED VALID RELY"),
+    ("NOT ENFORCED", "NOT ENFORCED VALID RELY"),
+    ("NOT ENFORCED NORELY", "NOT ENFORCED VALID NORELY"),
+    ("NORELY NOT ENFORCED", "NOT ENFORCED VALID NORELY"),
+    ("NORELY", "ENFORCED VALID NORELY"),
+    ("NOT ENFORCED RELY", "NOT ENFORCED VALID RELY"),
+    ("RELY NOT ENFORCED", "NOT ENFORCED VALID RELY"),
+    ("RELY", "ENFORCED VALID RELY")
+  )
 
-      sql(s"ALTER TABLE $t ADD CONSTRAINT c1 CHECK (id > 0)")
-      val table = loadTable(catalog, "ns", "tbl")
-      val constraint = getCheckConstraint(table)
-      assert(constraint.name() == "c1")
-      assert(constraint.toDDL == "CONSTRAINT c1 CHECK id > 0 ENFORCED VALID RELY")
+  test("Create table with check constraint") {
+    validConstraintCharacteristics.foreach { case (characteristic, expectedDDL) =>
+      withNamespaceAndTable("ns", "tbl", catalog) { t =>
+        val constraintStr = s"CONSTRAINT c1 CHECK (id > 0) $characteristic"
+        sql(s"CREATE TABLE $t (id bigint, data string) $defaultUsing $constraintStr")
+        val table = loadTable(catalog, "ns", "tbl")
+        val constraint = getCheckConstraint(table)
+        assert(constraint.name() == "c1")
+        assert(constraint.toDDL == s"CONSTRAINT c1 CHECK id > 0 $expectedDDL")
+      }
+    }
+  }
+
+  test("Alter table add check constraint") {
+    validConstraintCharacteristics.foreach { case (characteristic, expectedDDL) =>
+      withNamespaceAndTable("ns", "tbl", catalog) { t =>
+        sql(s"CREATE TABLE $t (id bigint, data string) $defaultUsing")
+        assert(loadTable(catalog, "ns", "tbl").constraints.isEmpty)
+
+        sql(s"ALTER TABLE $t ADD CONSTRAINT c1 CHECK (id > 0) $characteristic")
+        val table = loadTable(catalog, "ns", "tbl")
+        val constraint = getCheckConstraint(table)
+        assert(constraint.name() == "c1")
+        assert(constraint.toDDL == s"CONSTRAINT c1 CHECK id > 0 $expectedDDL")
+      }
     }
   }
 
