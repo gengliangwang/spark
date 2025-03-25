@@ -5291,7 +5291,8 @@ class AstBuilder extends DataTypeAstBuilder
         val text = getOriginalText(e.enforcedCharacteristic()).toUpperCase(Locale.ROOT)
         if (enforcement.isDefined) {
           val invalidCharacteristics = s"${enforcement.get}, $text"
-          throw QueryParsingErrors.invalidConstraintCharacteristics(ctx, invalidCharacteristics)
+          throw QueryParsingErrors.invalidConstraintCharacteristics(
+            e.enforcedCharacteristic(), invalidCharacteristics)
         } else {
           enforcement = Some(text)
         }
@@ -5300,7 +5301,8 @@ class AstBuilder extends DataTypeAstBuilder
         val text = r.relyCharacteristic().getText.toUpperCase(Locale.ROOT)
         if (rely.isDefined) {
           val invalidCharacteristics = s"${rely.get}, $text"
-          throw QueryParsingErrors.invalidConstraintCharacteristics(ctx, invalidCharacteristics)
+          throw QueryParsingErrors.invalidConstraintCharacteristics(
+            r.relyCharacteristic(), invalidCharacteristics)
         } else {
           rely = Some(text)
         }

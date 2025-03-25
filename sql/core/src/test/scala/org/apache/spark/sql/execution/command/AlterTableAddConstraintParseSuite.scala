@@ -65,26 +65,70 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
     assert(msg.contains("Syntax error at or near ')'"))
   }
 
-  test("Add valid constraint characteristic") {
-    val sql =
-      """
-        |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0) NOT ENFORCED
-        |""".stripMargin
-    val parsed = parsePlan(sql)
-    val characteristic = ConstraintCharacteristic(
-      enforced = Some(false),
-      rely = None
+  test("Add check constraint with valid characteristic") {
+    val combinations = Seq(
+      ("", "", ConstraintCharacteristic(enforced = None, rely = None)),
+      ("ENFORCED", "", ConstraintCharacteristic(enforced = Some(true), rely = None)),
+      ("NOT ENFORCED", "", ConstraintCharacteristic(enforced = Some(false), rely = None)),
+      ("", "RELY", ConstraintCharacteristic(enforced = None, rely = Some(true))),
+      ("", "NORELY", ConstraintCharacteristic(enforced = None, rely = Some(false))),
+      ("ENFORCED", "RELY", ConstraintCharacteristic(enforced = Some(true), rely = Some(true))),
+      ("ENFORCED", "NORELY", ConstraintCharacteristic(enforced = Some(true), rely = Some(false))),
+      ("NOT ENFORCED", "RELY", ConstraintCharacteristic(enforced = Some(false), rely = Some(true))),
+      ("NOT ENFORCED", "NORELY",
+        ConstraintCharacteristic(enforced = Some(false), rely = Some(false)))
     )
-    val expected = AddCheckConstraint(
-      UnresolvedTable(
-        Seq("a", "b", "c"),
-        "ALTER TABLE ... ADD CONSTRAINT"),
-      CheckConstraint(
-        child = GreaterThan(UnresolvedAttribute("d"), Literal(0)),
-        condition = "d > 0",
-        name = "c1",
-        characteristic = characteristic
-      ))
-    comparePlans(parsed, expected)
+
+    combinations.foreach { case (enforcedStr, relyStr, characteristic) =>
+      val sql =
+        s"""
+           |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0) $enforcedStr $relyStr
+           |""".stripMargin
+      val parsed = parsePlan(sql)
+      val expected = AddCheckConstraint(
+        UnresolvedTable(
+          Seq("a", "b", "c"),
+          "ALTER TABLE ... ADD CONSTRAINT"),
+        CheckConstraint(
+          child = GreaterThan(UnresolvedAttribute("d"), Literal(0)),
+          condition = "d > 0",
+          name = "c1",
+          characteristic = characteristic
+        ))
+      comparePlans(parsed, expected)
+    }
+  }
+
+
+  test("Add check constraint with invalid characteristic") {
+    val combinations = Seq(
+      ("ENFORCED", "ENFORCED"),
+      ("ENFORCED", "NOT ENFORCED"),
+      ("NOT ENFORCED", "ENFORCED"),
+      ("NOT ENFORCED", "NOT ENFORCED"),
+      ("RELY", "RELY"),
+      ("RELY", "NORELY"),
+      ("NORELY", "RELY"),
+      ("NORELY", "NORELY")
+    )
+
+    combinations.foreach { case (characteristic1, characteristic2) =>
+      val sql =
+        s"ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0) $characteristic1 $characteristic2"
+
+      val e = intercept[ParseException] {
+        parsePlan(sql)
+      }
+      val expectedContext = ExpectedContext(
+        fragment = s"CONSTRAINT c1 CHECK (d > 0) $characteristic1 $characteristic2",
+        start = 22,
+        stop = 50 + characteristic1.length + characteristic2.length
+      )
+      checkError(
+        exception = e,
+        condition = "INVALID_CONSTRAINT_CHARACTERISTICS",
+        parameters = Map("characteristics" -> s"$characteristic1, $characteristic2"),
+        queryContext = Array(expectedContext))
+    }
   }
 }
