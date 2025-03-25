@@ -3861,23 +3861,26 @@ class AstBuilder extends DataTypeAstBuilder
    * Create top level table schema.
    */
   protected def createSchema(ctx: ColDefinitionListContext): StructType = {
-    val columns = Option(ctx).toArray.flatMap(visitColDefinitionList)
-    StructType(columns.map(_.toV1Column))
+    StructType(Option(ctx).toArray.flatMap{ c =>
+      val (cols, _) = visitColDefinitionList(c)
+      cols.map(_.toV1Column)
+    })
   }
 
   /**
    * Get CREATE TABLE column definitions.
    */
   override def visitColDefinitionList(
-      ctx: ColDefinitionListContext): Seq[ColumnDefinition] = withOrigin(ctx) {
-    ctx.colDefinition().asScala.map(visitColDefinition).toSeq
+      ctx: ColDefinitionListContext): ColumnDefinitionList = withOrigin(ctx) {
+    val (colDefs, constraints) = ctx.colDefinition().asScala.map(visitColDefinition).toSeq.unzip
+    (colDefs, constraints.flatten)
   }
 
   /**
    * Get a CREATE TABLE column definition.
    */
   override def visitColDefinition(
-      ctx: ColDefinitionContext): ColumnDefinition = withOrigin(ctx) {
+      ctx: ColDefinitionContext): ColumnAndConstraint = withOrigin(ctx) {
     import ctx._
 
     val name: String = colName.getText
@@ -3886,6 +3889,7 @@ class AstBuilder extends DataTypeAstBuilder
     var defaultExpression: Option[DefaultExpressionContext] = None
     var generationExpression: Option[GenerationExpressionContext] = None
     var commentSpec: Option[CommentSpecContext] = None
+    var constraintSpec: Option[ConstraintSpecContext] = None
     ctx.colDefinitionOption().asScala.foreach { option =>
       if (option.NULL != null) {
         blockBang(option.errorCapturingNot)
@@ -3919,10 +3923,16 @@ class AstBuilder extends DataTypeAstBuilder
         }
         commentSpec = Some(spec)
       }
+      Option(option.constraintSpec()).foreach { spec =>
+        if (constraintSpec.isDefined) {
+          throw QueryParsingErrors.duplicateTableColumnDescriptor(
+            option, name, "CONSTRAINT")
+        }
+      }
     }
 
     val dataType = typedVisit[DataType](ctx.dataType)
-    ColumnDefinition(
+    val columnDef = ColumnDefinition(
       name = name,
       dataType = dataType,
       nullable = nullable,
@@ -3935,6 +3945,8 @@ class AstBuilder extends DataTypeAstBuilder
         case ctx: IdentityColumnContext => visitIdentityColumn(ctx, dataType)
       }
     )
+    val constraint = constraintSpec.map(visitConstraintSpec)
+    (columnDef, constraint)
   }
 
   /**
@@ -4153,8 +4165,11 @@ class AstBuilder extends DataTypeAstBuilder
    */
   type TableClauses = (
       Seq[Transform], Seq[ColumnDefinition], Option[BucketSpec], Map[String, String], OptionList,
-      Option[String], Option[String], Option[String], Option[SerdeInfo], Option[ClusterBySpec],
-      Constraints)
+      Option[String], Option[String], Option[String], Option[SerdeInfo], Option[ClusterBySpec])
+
+  type ColumnAndConstraint = (ColumnDefinition, Option[ConstraintExpression])
+
+  type ColumnDefinitionList = (Seq[ColumnDefinition], Seq[ConstraintExpression])
 
   /**
    * Validate a create table statement and return the [[TableIdentifier]].
@@ -4657,10 +4672,8 @@ class AstBuilder extends DataTypeAstBuilder
       }
     }
 
-    val constraints = Constraints(ctx.constraintSpec().asScala.map(visitConstraintSpec).toSeq)
-
     (partTransforms, partCols, bucketSpec, cleanedProperties, cleanedOptions, newLocation, comment,
-      collation, serdeInfo, clusterBySpec, constraints)
+      collation, serdeInfo, clusterBySpec)
   }
 
   protected def getSerdeInfo(
@@ -4732,10 +4745,11 @@ class AstBuilder extends DataTypeAstBuilder
     val (identifierContext, temp, ifNotExists, external) =
       visitCreateTableHeader(ctx.createTableHeader)
 
-    val columns = Option(ctx.colDefinitionList()).map(visitColDefinitionList).getOrElse(Nil)
+    val (columns, colConstraints) =
+      Option(ctx.colDefinitionList()).map(visitColDefinitionList).getOrElse((Nil, Nil))
     val provider = Option(ctx.tableProvider).map(_.multipartIdentifier.getText)
     val (partTransforms, partCols, bucketSpec, properties, options, location, comment,
-      collation, serdeInfo, clusterBySpec, constraints) =
+      collation, serdeInfo, clusterBySpec) =
       visitCreateTableClauses(ctx.createTableClauses())
 
     if (provider.isDefined && serdeInfo.isDefined) {
@@ -4754,7 +4768,7 @@ class AstBuilder extends DataTypeAstBuilder
         clusterBySpec.map(_.asTransform)
 
     val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
-      collation, serdeInfo, external, constraints)
+      collation, serdeInfo, external, Constraints(colConstraints))
 
     Option(ctx.query).map(plan) match {
       case Some(_) if columns.nonEmpty =>
@@ -4814,8 +4828,9 @@ class AstBuilder extends DataTypeAstBuilder
   override def visitReplaceTable(ctx: ReplaceTableContext): LogicalPlan = withOrigin(ctx) {
     val orCreate = ctx.replaceTableHeader().CREATE() != null
     val (partTransforms, partCols, bucketSpec, properties, options, location, comment, collation,
-      serdeInfo, clusterBySpec, constraints) = visitCreateTableClauses(ctx.createTableClauses())
-    val columns = Option(ctx.colDefinitionList()).map(visitColDefinitionList).getOrElse(Nil)
+      serdeInfo, clusterBySpec) = visitCreateTableClauses(ctx.createTableClauses())
+    val (columns, colConstraints) =
+      Option(ctx.colDefinitionList()).map(visitColDefinitionList).getOrElse((Nil, Nil))
     val provider = Option(ctx.tableProvider).map(_.multipartIdentifier.getText)
 
     if (provider.isDefined && serdeInfo.isDefined) {
@@ -4828,7 +4843,7 @@ class AstBuilder extends DataTypeAstBuilder
         clusterBySpec.map(_.asTransform)
 
     val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
-      collation, serdeInfo, external = false, constraints)
+      collation, serdeInfo, external = false, Constraints(colConstraints))
 
     Option(ctx.query).map(plan) match {
       case Some(_) if columns.nonEmpty =>

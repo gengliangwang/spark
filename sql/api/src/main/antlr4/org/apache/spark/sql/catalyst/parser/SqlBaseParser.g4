@@ -562,7 +562,6 @@ createTableClauses
      locationSpec |
      commentSpec |
      collationSpec |
-     constraintSpec |
      (TBLPROPERTIES tableProps=propertyList))*
     ;
 
@@ -1352,6 +1351,7 @@ colDefinitionOption
     | defaultExpression
     | generationExpression
     | commentSpec
+    | constraintSpec
     ;
 
 generationExpression
