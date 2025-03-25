@@ -15,16 +15,16 @@
  * limitations under the License.
  */
 
-package org.apache.spark.sql.execution.command.v1
+package org.apache.spark.sql.execution.command
 
-import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedAttribute, UnresolvedIdentifier}
+import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedIdentifier}
 import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, Constraints, EqualTo, GreaterThan, Literal}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
+import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.plans.logical.{ColumnDefinition, CreateTable, OptionList, UnresolvedTableSpec}
-import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{IntegerType, StringType}
 
-class CreateTableConstraintParseSuite extends AnalysisTest with SharedSparkSession {
+class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
   val createTablePrefix = "CREATE TABLE t (a INT, b STRING) USING parquet"
   val tableId = UnresolvedIdentifier(Seq("t"))
   val columns = Seq(
@@ -69,5 +69,36 @@ class CreateTableConstraintParseSuite extends AnalysisTest with SharedSparkSessi
       name = "c2")
     val constraints = Constraints(Seq(constraint1, constraint2))
     verifyConstraints(constraintStr, constraints)
+  }
+
+  test("Create table with valid characteristic") {
+    validConstraintCharacteristics.foreach { case (enforcedStr, relyStr, characteristic) =>
+      val constraintStr = s"CONSTRAINT c1 CHECK (a > 0) $enforcedStr $relyStr"
+      val constraint = CheckConstraint(
+        child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
+        condition = "a > 0",
+        name = "c1",
+        characteristic = characteristic)
+      val constraints = Constraints(Seq(constraint))
+      verifyConstraints(constraintStr, constraints)
+    }
+  }
+
+  test("Create table with invalid characteristic") {
+    invalidConstraintCharacteristics.foreach { case (characteristic1, characteristic2) =>
+      val constraintStr = s"CONSTRAINT c1 CHECK (a > 0) $characteristic1 $characteristic2"
+      val expectedContext = ExpectedContext(
+        fragment = s"CONSTRAINT c1 CHECK (a > 0) $characteristic1 $characteristic2",
+        start = 47,
+        stop = 75 + characteristic1.length + characteristic2.length
+      )
+      checkError(
+        exception = intercept[ParseException] {
+          parsePlan(s"$createTablePrefix $constraintStr")
+        },
+        condition = "INVALID_CONSTRAINT_CHARACTERISTICS",
+        parameters = Map("characteristics" -> s"$characteristic1, $characteristic2"),
+        queryContext = Array(expectedContext))
+    }
   }
 }

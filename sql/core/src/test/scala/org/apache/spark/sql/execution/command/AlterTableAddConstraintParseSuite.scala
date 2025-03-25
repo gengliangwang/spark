@@ -16,14 +16,13 @@
  */
 package org.apache.spark.sql.execution.command
 
-import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedAttribute, UnresolvedTable}
-import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, ConstraintCharacteristic, GreaterThan, Literal}
+import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedTable}
+import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, GreaterThan, Literal}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.plans.logical.AddCheckConstraint
-import org.apache.spark.sql.test.SharedSparkSession
 
-class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSession {
+class AlterTableAddConstraintParseSuite extends ConstraintParseSuiteBase {
 
   test("Add check constraint") {
     val sql =
@@ -66,20 +65,7 @@ class AlterTableAddConstraintParseSuite extends AnalysisTest with SharedSparkSes
   }
 
   test("Add check constraint with valid characteristic") {
-    val combinations = Seq(
-      ("", "", ConstraintCharacteristic(enforced = None, rely = None)),
-      ("ENFORCED", "", ConstraintCharacteristic(enforced = Some(true), rely = None)),
-      ("NOT ENFORCED", "", ConstraintCharacteristic(enforced = Some(false), rely = None)),
-      ("", "RELY", ConstraintCharacteristic(enforced = None, rely = Some(true))),
-      ("", "NORELY", ConstraintCharacteristic(enforced = None, rely = Some(false))),
-      ("ENFORCED", "RELY", ConstraintCharacteristic(enforced = Some(true), rely = Some(true))),
-      ("ENFORCED", "NORELY", ConstraintCharacteristic(enforced = Some(true), rely = Some(false))),
-      ("NOT ENFORCED", "RELY", ConstraintCharacteristic(enforced = Some(false), rely = Some(true))),
-      ("NOT ENFORCED", "NORELY",
-        ConstraintCharacteristic(enforced = Some(false), rely = Some(false)))
-    )
-
-    combinations.foreach { case (enforcedStr, relyStr, characteristic) =>
+    validConstraintCharacteristics.foreach { case (enforcedStr, relyStr, characteristic) =>
       val sql =
         s"""
            |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0) $enforcedStr $relyStr
