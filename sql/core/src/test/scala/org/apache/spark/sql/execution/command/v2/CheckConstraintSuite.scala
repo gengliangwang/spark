@@ -110,7 +110,7 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
     validConstraintCharacteristics.foreach { case (characteristic, expectedDDL) =>
       withNamespaceAndTable("ns", "tbl", catalog) { t =>
         val constraintStr = s"CONSTRAINT c1 CHECK (id > 0) $characteristic"
-        sql(s"CREATE TABLE $t (id bigint, data string) $defaultUsing $constraintStr")
+        sql(s"CREATE TABLE $t (id bigint, data string, $constraintStr) $defaultUsing")
         val table = loadTable(catalog, "ns", "tbl")
         val constraint = getCheckConstraint(table)
         assert(constraint.name() == "c1")
