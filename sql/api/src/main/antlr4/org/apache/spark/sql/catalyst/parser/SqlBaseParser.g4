@@ -1293,6 +1293,7 @@ type
     | INTERVAL
     | VARIANT
     | ARRAY | STRUCT | MAP
+    | unsupportedType=identifier
     ;
 
 dataType
@@ -1342,8 +1343,8 @@ tableElementList
     ;
 
 tableElement
-    : colDefinition
-    | constraintSpec
+    : constraintSpec
+    | colDefinition
     ;
 
 colDefinitionList
@@ -1530,11 +1531,7 @@ number
     ;
 
 constraintSpec
-    : constraintName? constraintExpression constraintCharacteristic*
-    ;
-
-constraintName
-    : CONSTRAINT name=errorCapturingIdentifier
+    : (CONSTRAINT name=errorCapturingIdentifier)? constraintExpression constraintCharacteristic*
     ;
 
 constraintExpression

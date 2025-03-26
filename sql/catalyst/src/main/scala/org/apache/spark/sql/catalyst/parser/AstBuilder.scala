@@ -3926,6 +3926,7 @@ class AstBuilder extends DataTypeAstBuilder
           throw QueryParsingErrors.duplicateTableColumnDescriptor(
             option, name, "CONSTRAINT")
         }
+        constraintSpec = Some(spec)
       }
     }
 
@@ -5290,8 +5291,8 @@ class AstBuilder extends DataTypeAstBuilder
 
   override def visitConstraintSpec(ctx: ConstraintSpecContext): ConstraintExpression =
     withOrigin(ctx) {
-      val name = if (ctx.constraintName() != null) {
-        visitConstraintName(ctx.constraintName())
+      val name = if (ctx.name != null) {
+        ctx.name.getText
       } else {
         null
       }
@@ -5300,10 +5301,6 @@ class AstBuilder extends DataTypeAstBuilder
         visitConstraintExpression(ctx.constraintExpression()).asInstanceOf[ConstraintExpression]
 
       expr.withNameAndCharacteristic(name, constraintCharacteristic)
-  }
-
-  override def visitConstraintName(ctx: ConstraintNameContext): String = {
-    ctx.name.getText
   }
 
   override def visitCheckConstraint(ctx: CheckConstraintContext): CheckConstraint =
