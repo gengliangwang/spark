@@ -25,7 +25,8 @@ import org.apache.spark.sql.catalyst.plans.logical.{ColumnDefinition, CreateTabl
 import org.apache.spark.sql.types.{IntegerType, StringType}
 
 class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
-  val createTablePrefix = "CREATE TABLE t (a INT, b STRING) USING parquet"
+  val createTablePrefix = "CREATE TABLE t (a INT, b STRING"
+  val createTableSuffix = ") USING parquet"
   val tableId = UnresolvedIdentifier(Seq("t"))
   val columns = Seq(
     ColumnDefinition("a", IntegerType),
@@ -36,7 +37,8 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
     val sql =
       s"""
          |$createTablePrefix
-         |$constraintStr
+         |, $constraintStr
+         |$createTableSuffix
          |""".stripMargin
 
     val parsed = parsePlan(sql)

@@ -198,7 +198,7 @@ statement
         (RESTRICT | CASCADE)?                                          #dropNamespace
     | SHOW namespaces ((FROM | IN) multipartIdentifier)?
         (LIKE? pattern=stringLit)?                                        #showNamespaces
-    | createTableHeader (LEFT_PAREN colDefinitionList constraintListWithLeadingComma? RIGHT_PAREN)? tableProvider?
+    | createTableHeader (LEFT_PAREN tableElementList RIGHT_PAREN)? tableProvider?
         createTableClauses
         (AS? query)?                                                   #createTable
     | CREATE TABLE (IF errorCapturingNot EXISTS)? target=tableIdentifier
@@ -208,7 +208,7 @@ statement
         createFileFormat |
         locationSpec |
         (TBLPROPERTIES tableProps=propertyList))*                      #createTableLike
-    | replaceTableHeader (LEFT_PAREN colDefinitionList constraintListWithLeadingComma? RIGHT_PAREN)? tableProvider?
+    | replaceTableHeader (LEFT_PAREN tableElementList RIGHT_PAREN)? tableProvider?
         createTableClauses
         (AS? query)?                                                   #replaceTable
     | ANALYZE TABLE identifierReference partitionSpec? COMPUTE STATISTICS
@@ -1293,7 +1293,6 @@ type
     | INTERVAL
     | VARIANT
     | ARRAY | STRUCT | MAP
-    | unsupportedType=identifier
     ;
 
 dataType
@@ -1336,6 +1335,15 @@ colTypeList
 
 colType
     : colName=errorCapturingIdentifier dataType (errorCapturingNot NULL)? commentSpec?
+    ;
+
+tableElementList
+    : tableElement (COMMA tableElement)*
+    ;
+
+tableElement
+    : colDefinition
+    | constraintSpec
     ;
 
 colDefinitionList
@@ -1519,10 +1527,6 @@ number
     | MINUS? DOUBLE_LITERAL           #doubleLiteral
     | MINUS? FLOAT_LITERAL            #floatLiteral
     | MINUS? BIGDECIMAL_LITERAL       #bigDecimalLiteral
-    ;
-
-constraintListWithLeadingComma
-    : COMMA constraintSpec (COMMA constraintSpec)*
     ;
 
 constraintSpec

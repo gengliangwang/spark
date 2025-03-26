@@ -3860,18 +3860,16 @@ class AstBuilder extends DataTypeAstBuilder
   /**
    * Create top level table schema.
    */
-  protected def createSchema(ctx: ColDefinitionListContext): StructType = {
-    StructType(Option(ctx).toArray.flatMap{ c =>
-      val (cols, _) = visitColDefinitionList(c)
-      cols.map(_.toV1Column)
-    })
+  protected def createSchema(ctx: TableElementListContext): StructType = {
+    val (cols, _) = visitTableElementList(ctx)
+    StructType(cols.map(_.toV1Column))
   }
 
   /**
    * Get CREATE TABLE column definitions.
    */
   override def visitColDefinitionList(
-      ctx: ColDefinitionListContext): ColumnDefinitionList = withOrigin(ctx) {
+      ctx: ColDefinitionListContext): TableElementList = withOrigin(ctx) {
     val (colDefs, constraints) = ctx.colDefinition().asScala.map(visitColDefinition).toSeq.unzip
     (colDefs, constraints.flatten)
   }
@@ -4169,7 +4167,7 @@ class AstBuilder extends DataTypeAstBuilder
 
   type ColumnAndConstraint = (ColumnDefinition, Option[ConstraintExpression])
 
-  type ColumnDefinitionList = (Seq[ColumnDefinition], Seq[ConstraintExpression])
+  type TableElementList = (Seq[ColumnDefinition], Seq[ConstraintExpression])
 
   /**
    * Validate a create table statement and return the [[TableIdentifier]].
@@ -4711,16 +4709,24 @@ class AstBuilder extends DataTypeAstBuilder
     }
   }
 
-  private def visitColumnDefinitionList(
-      colCtx: ColDefinitionListContext,
-      constraintListContext: ConstraintListWithLeadingCommaContext): ColumnDefinitionList = {
-    val (columns, colConstraints) = Option(colCtx).map(visitColDefinitionList).getOrElse((Nil, Nil))
+  override def visitTableElementList(ctx: TableElementListContext): TableElementList = {
+    if (ctx == null) {
+      return (Nil, Nil)
+    }
+    val columnDefs = new ArrayBuffer[ColumnDefinition]()
+    val constraints = new ArrayBuffer[ConstraintExpression]()
 
-    val tableConstraints = Option(constraintListContext)
-      .map(visitConstraintListWithLeadingComma)
-      .getOrElse(Nil)
+    ctx.tableElement().asScala.foreach { element =>
+      if (element.constraintSpec() != null) {
+        constraints += visitConstraintSpec(element.constraintSpec())
+      } else {
+        val (colDef, constraintOpt) = visitColDefinition(element.colDefinition())
+        columnDefs += colDef
+        constraintOpt.foreach(constraints += _)
+      }
+    }
 
-    (columns, colConstraints ++ tableConstraints)
+    (columnDefs.toSeq, constraints.toSeq)
   }
 
   /**
@@ -4757,8 +4763,7 @@ class AstBuilder extends DataTypeAstBuilder
     val (identifierContext, temp, ifNotExists, external) =
       visitCreateTableHeader(ctx.createTableHeader)
 
-    val (columns, constraints) =
-      visitColumnDefinitionList(ctx.colDefinitionList(), ctx.constraintListWithLeadingComma())
+    val (columns, constraints) = visitTableElementList(ctx.tableElementList())
 
     val provider = Option(ctx.tableProvider).map(_.multipartIdentifier.getText)
     val (partTransforms, partCols, bucketSpec, properties, options, location, comment,
@@ -4842,8 +4847,7 @@ class AstBuilder extends DataTypeAstBuilder
     val orCreate = ctx.replaceTableHeader().CREATE() != null
     val (partTransforms, partCols, bucketSpec, properties, options, location, comment, collation,
       serdeInfo, clusterBySpec) = visitCreateTableClauses(ctx.createTableClauses())
-    val (columns, constraints) =
-      visitColumnDefinitionList(ctx.colDefinitionList(), ctx.constraintListWithLeadingComma())
+    val (columns, constraints) = visitTableElementList(ctx.tableElementList())
     val provider = Option(ctx.tableProvider).map(_.multipartIdentifier.getText)
 
     if (provider.isDefined && serdeInfo.isDefined) {
@@ -5336,11 +5340,6 @@ class AstBuilder extends DataTypeAstBuilder
         }
     }
     ConstraintCharacteristic(enforcement.map(_ == "ENFORCED"), rely.map(_ == "RELY"))
-  }
-
-  override def visitConstraintListWithLeadingComma(
-      ctx: ConstraintListWithLeadingCommaContext): Seq[ConstraintExpression] = {
-    ctx.constraintSpec().asScala.map(visitConstraintSpec).toSeq
   }
 
   /**
