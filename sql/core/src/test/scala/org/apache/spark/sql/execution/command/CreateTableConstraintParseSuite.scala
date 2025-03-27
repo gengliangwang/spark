@@ -18,7 +18,7 @@
 package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedIdentifier}
-import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, ConstraintExpression, EqualTo, GreaterThan, Literal}
+import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.plans.logical.{ColumnDefinition, CreateTable, OptionList, UnresolvedTableSpec}
@@ -28,7 +28,7 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
 
   def createExpectedPlan(
       columns: Seq[ColumnDefinition],
-      constraints: Seq[ConstraintExpression]): CreateTable = {
+      constraints: Seq[TableConstraint]): CreateTable = {
     val tableId = UnresolvedIdentifier(Seq("t"))
     val tableSpec = UnresolvedTableSpec(
       Map.empty[String, String], Some("parquet"), OptionList(Seq.empty),
@@ -36,7 +36,7 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
     CreateTable(tableId, columns, Seq.empty, tableSpec, false)
   }
 
-  def verifyConstraints(sql: String, constraints: Seq[ConstraintExpression]): Unit = {
+  def verifyConstraints(sql: String, constraints: Seq[TableConstraint]): Unit = {
     val parsed = parsePlan(sql)
     val columns = Seq(
       ColumnDefinition("a", IntegerType),

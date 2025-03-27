@@ -1522,7 +1522,7 @@ case class UnresolvedTableSpec(
     collation: Option[String],
     serde: Option[SerdeInfo],
     external: Boolean,
-    constraints: Seq[ConstraintExpression])
+    constraints: Seq[TableConstraint])
   extends UnaryExpression with Unevaluable with TableSpecBase {
 
   override def dataType: DataType =

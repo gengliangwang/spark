@@ -67,8 +67,8 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
   }
 
   private def analyzeConstraints(
-      constraints: Seq[ConstraintExpression],
-      fakeRelation: LogicalPlan): Seq[ConstraintExpression] = {
+      constraints: Seq[TableConstraint],
+      fakeRelation: LogicalPlan): Seq[TableConstraint] = {
     val analyzedExpressions = constraints.map {
       case c: CheckConstraint =>
         val alias = Alias(c.child, c.name)()

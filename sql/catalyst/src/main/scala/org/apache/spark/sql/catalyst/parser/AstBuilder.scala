@@ -4166,9 +4166,9 @@ class AstBuilder extends DataTypeAstBuilder
       Seq[Transform], Seq[ColumnDefinition], Option[BucketSpec], Map[String, String], OptionList,
       Option[String], Option[String], Option[String], Option[SerdeInfo], Option[ClusterBySpec])
 
-  type ColumnAndConstraint = (ColumnDefinition, Option[ConstraintExpression])
+  type ColumnAndConstraint = (ColumnDefinition, Option[TableConstraint])
 
-  type TableElementList = (Seq[ColumnDefinition], Seq[ConstraintExpression])
+  type TableElementList = (Seq[ColumnDefinition], Seq[TableConstraint])
 
   /**
    * Validate a create table statement and return the [[TableIdentifier]].
@@ -4715,7 +4715,7 @@ class AstBuilder extends DataTypeAstBuilder
       return (Nil, Nil)
     }
     val columnDefs = new ArrayBuffer[ColumnDefinition]()
-    val constraints = new ArrayBuffer[ConstraintExpression]()
+    val constraints = new ArrayBuffer[TableConstraint]()
 
     ctx.tableElement().asScala.foreach { element =>
       if (element.constraintSpec() != null) {
@@ -5289,7 +5289,7 @@ class AstBuilder extends DataTypeAstBuilder
       AlterTableCollation(table, visitCollationSpec(ctx.collationSpec()))
     }
 
-  override def visitConstraintSpec(ctx: ConstraintSpecContext): ConstraintExpression =
+  override def visitConstraintSpec(ctx: ConstraintSpecContext): TableConstraint =
     withOrigin(ctx) {
       val name = if (ctx.name != null) {
         ctx.name.getText
@@ -5298,7 +5298,7 @@ class AstBuilder extends DataTypeAstBuilder
       }
       val constraintCharacteristic = visitConstraintCharacteristic(ctx)
       val expr =
-        visitConstraintExpression(ctx.constraintExpression()).asInstanceOf[ConstraintExpression]
+        visitConstraintExpression(ctx.constraintExpression()).asInstanceOf[TableConstraint]
 
       expr.withNameAndCharacteristic(name, constraintCharacteristic)
   }

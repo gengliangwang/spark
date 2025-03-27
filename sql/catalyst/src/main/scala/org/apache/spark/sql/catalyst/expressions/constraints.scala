@@ -21,12 +21,12 @@ import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
 import org.apache.spark.sql.connector.catalog.constraints.Constraint
 import org.apache.spark.sql.types.{DataType, StringType}
 
-trait ConstraintExpression {
+trait TableConstraint {
   def asConstraint: Constraint
 
   def withNameAndCharacteristic(
       name: String,
-      c: ConstraintCharacteristic): ConstraintExpression
+      c: ConstraintCharacteristic): TableConstraint
 
   def name: String
 
@@ -50,7 +50,7 @@ case class CheckConstraint(
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
   extends UnaryExpression
   with Unevaluable
-  with ConstraintExpression {
+  with TableConstraint {
 
   def asConstraint: Constraint = {
     val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
@@ -73,7 +73,7 @@ case class CheckConstraint(
 
   override def withNameAndCharacteristic(
       name: String,
-      c: ConstraintCharacteristic): ConstraintExpression = {
+      c: ConstraintCharacteristic): TableConstraint = {
     copy(name = name, characteristic = c)
   }
 
