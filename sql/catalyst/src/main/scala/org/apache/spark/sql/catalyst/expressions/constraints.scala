@@ -18,7 +18,6 @@ package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
-import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.connector.catalog.constraints.Constraint
 import org.apache.spark.sql.connector.expressions.FieldReference
 import org.apache.spark.sql.types.{DataType, StringType}
@@ -122,16 +121,49 @@ case class PrimaryKeyConstraint(
   override def defaultName: String = "pk"
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
-    ConstraintCharacteristic(enforced = Some(true), rely = Some(true))
+    ConstraintCharacteristic(enforced = Some(false), rely = Some(true))
+}
+
+case class UniqueConstraint(
+    columns: Seq[String],
+    override val name: String = null,
+    override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
+    extends TableConstraint {
+
+  override def asConstraint: Constraint = {
+    val (rely, enforced) = getCharacteristicValues
+    val constraintName = if (name == null) defaultName else name
+    Constraint
+      .unique(constraintName, columns.map(FieldReference.column).toArray)
+      .rely(rely)
+      .enforced(enforced)
+      .validationStatus(Constraint.ValidationStatus.UNVALIDATED)
+      .build()
+  }
+
+  override def withNameAndCharacteristic(
+    name: String,
+    c: ConstraintCharacteristic): TableConstraint = {
+    copy(name = name, characteristic = c)
+  }
+
+  override def defaultName: String =
+    throw new AnalysisException(
+      errorClass = "INVALID_UNIQUE_CONSTRAINT.MISSING_NAME",
+      messageParameters = Map.empty)
+
+  override def defaultConstraintCharacteristic: ConstraintCharacteristic =
+    ConstraintCharacteristic(enforced = Some(false), rely = Some(true))
 }
 
 case class ForeignKeyConstraint(
     override val name: String = null,
     childColumns: Seq[String] = Seq.empty,
-    parentTable: Identifier = null,
+    parentTableId: Seq[String] = Seq.empty,
     parentColumns: Seq[String] = Seq.empty,
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
   extends TableConstraint {
+  import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 
   override def asConstraint: Constraint = {
     val (rely, enforced) = getCharacteristicValues
@@ -139,7 +171,7 @@ case class ForeignKeyConstraint(
     Constraint
       .foreignKey(constraintName,
         childColumns.map(FieldReference.column).toArray,
-        parentTable,
+        parentTableId.asIdentifier,
         parentColumns.map(FieldReference.column).toArray)
       .rely(rely)
       .enforced(enforced)
@@ -156,5 +188,5 @@ case class ForeignKeyConstraint(
   override def defaultName: String = "fk"
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
-    ConstraintCharacteristic(enforced = Some(true), rely = Some(true))
+    ConstraintCharacteristic(enforced = Some(false), rely = Some(true))
 }

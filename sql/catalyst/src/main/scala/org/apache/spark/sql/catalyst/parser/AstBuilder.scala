@@ -3951,7 +3951,27 @@ class AstBuilder extends DataTypeAstBuilder
   private def visitColumnConstraint(
       columnName: String,
       ctx: ColumnConstraintContext): TableConstraint = {
-    null
+    val columns = Seq(columnName)
+    if (ctx.uniqueSpec() != null) {
+      if (ctx.uniqueSpec().UNIQUE() != null) {
+        UniqueConstraint(columns)
+      } else {
+        PrimaryKeyConstraint(columns)
+      }
+    } else {
+      assert(ctx.referenceSpec() != null)
+      val (tableId, refColumns) = visitReferenceSpec(ctx.referenceSpec())
+      ForeignKeyConstraint(
+        childColumns = columns,
+        parentTableId = tableId,
+        parentColumns = refColumns)
+    }
+  }
+
+  override def visitReferenceSpec(ctx: ReferenceSpecContext): (Seq[String], Seq[String]) = {
+    val tableId = visitMultipartIdentifier(ctx.multipartIdentifier())
+    val refColumns = visitIdentifierList(ctx.parentColumns)
+    (tableId, refColumns)
   }
 
   /**
