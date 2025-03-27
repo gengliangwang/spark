@@ -56,17 +56,6 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
     verifyConstraints(sql, constraints)
   }
 
-  test("Create table with one check constraint - column level") {
-    val sql = "CREATE TABLE t (a INT CONSTRAINT c1 CHECK (a > 0), b STRING) USING parquet"
-    val constraint = CheckConstraint(
-      child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
-      condition = "a > 0",
-      name = "c1")
-    val constraints = Seq(constraint)
-    verifyConstraints(sql, constraints)
-  }
-
-
   test("Create table with two check constraints - table level") {
     val sql = "CREATE TABLE t (a INT, b STRING, CONSTRAINT c1 CHECK (a > 0), " +
       "CONSTRAINT c2 CHECK (b = 'foo')) USING parquet"
@@ -82,41 +71,10 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
     verifyConstraints(sql, constraints)
   }
 
-
-  test("Create table with two check constraints - column level") {
-    val sql = "CREATE TABLE t (a INT CONSTRAINT c1 CHECK (a > 0), " +
-      "b STRING CONSTRAINT c2 CHECK (b = 'foo')) USING parquet"
-    val constraint1 = CheckConstraint(
-      child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
-      condition = "a > 0",
-      name = "c1")
-    val constraint2 = CheckConstraint(
-      child = EqualTo(UnresolvedAttribute("b"), Literal("foo")),
-      condition = "b = 'foo'",
-      name = "c2")
-    val constraints = Seq(constraint1, constraint2)
-    verifyConstraints(sql, constraints)
-  }
-
-
   test("Create table with valid characteristic - table level") {
     validConstraintCharacteristics.foreach { case (enforcedStr, relyStr, characteristic) =>
       val sql = s"CREATE TABLE t (a INT, b STRING, CONSTRAINT c1 CHECK (a > 0) " +
         s"$enforcedStr $relyStr) USING parquet"
-      val constraint = CheckConstraint(
-        child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
-        condition = "a > 0",
-        name = "c1",
-        characteristic = characteristic)
-      val constraints = Seq(constraint)
-      verifyConstraints(sql, constraints)
-    }
-  }
-
-  test("Create table with valid characteristic - column level") {
-    validConstraintCharacteristics.foreach { case (enforcedStr, relyStr, characteristic) =>
-      val sql = s"CREATE TABLE t (a INT CONSTRAINT c1 CHECK (a > 0) " +
-        s"$enforcedStr $relyStr, b STRING) USING parquet"
       val constraint = CheckConstraint(
         child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
         condition = "a > 0",
@@ -149,18 +107,6 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
     val sql = "CREATE TABLE t (constraint STRING) USING parquet"
     val columns = Seq(ColumnDefinition("constraint", StringType))
     val expected = createExpectedPlan(columns, Seq.empty)
-    comparePlans(parsePlan(sql), expected)
-  }
-
-  test("Create table with column 'constraint' and check constraint") {
-    val sql = "CREATE TABLE t (constraint STRING CONSTRAINT c1 CHECK (constraint = 'foo'))" +
-      " USING parquet"
-    val columns = Seq(ColumnDefinition("constraint", StringType))
-    val constraint = CheckConstraint(
-      child = EqualTo(UnresolvedAttribute("constraint"), Literal("foo")),
-      condition = "constraint = 'foo'",
-      name = "c1")
-    val expected = createExpectedPlan(columns, Seq(constraint))
     comparePlans(parsePlan(sql), expected)
   }
 }
