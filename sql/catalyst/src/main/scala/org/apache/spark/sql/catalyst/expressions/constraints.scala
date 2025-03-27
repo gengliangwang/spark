@@ -16,18 +16,12 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
-import org.apache.spark.SparkUnsupportedOperationException
 import org.apache.spark.sql.AnalysisException
-import org.apache.spark.sql.catalyst.trees.UnaryLike
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
 import org.apache.spark.sql.connector.catalog.constraints.Constraint
 import org.apache.spark.sql.types.{DataType, StringType}
 
-trait ConstraintExpression extends Expression with Unevaluable {
-  override def nullable: Boolean = true
-
-  override def dataType: DataType = StringType
-
+trait ConstraintExpression {
   def asConstraint: Constraint
 
   def withNameAndCharacteristic(
@@ -54,8 +48,9 @@ case class CheckConstraint(
     condition: String,
     override val name: String = null,
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
-  extends ConstraintExpression
-  with UnaryLike[Expression] {
+  extends UnaryExpression
+  with Unevaluable
+  with ConstraintExpression {
 
   def asConstraint: Constraint = {
     val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
@@ -91,29 +86,6 @@ case class CheckConstraint(
     ConstraintCharacteristic(enforced = Some(true), rely = Some(true))
 
   override def sql: String = s"CONSTRAINT $name CHECK ($condition)"
-}
 
-/*
-  * A list of constraints that are applied to a table.
- */
-case class Constraints(children: Seq[Expression]) extends Expression with Unevaluable {
-
-  assert(children.forall(_.isInstanceOf[ConstraintExpression]))
-
-  override def nullable: Boolean = true
-
-  override def dataType: DataType =
-    throw new SparkUnsupportedOperationException("_LEGACY_ERROR_TEMP_3113")
-
-  override protected def withNewChildrenInternal(
-    newChildren: IndexedSeq[Expression]): Expression = {
-    copy(children = newChildren)
-  }
-
-  def asConstraintList: Seq[Constraint] =
-    children.map(_.asInstanceOf[ConstraintExpression].asConstraint)
-}
-
-object Constraints {
-  val empty: Constraints = Constraints(Nil)
+  override def dataType: DataType = StringType
 }

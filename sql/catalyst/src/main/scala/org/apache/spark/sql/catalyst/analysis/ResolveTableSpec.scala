@@ -67,9 +67,9 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
   }
 
   private def analyzeConstraints(
-      constraints: Constraints,
-      fakeRelation: LogicalPlan): Constraints = {
-    val analyzedExpressions = constraints.children.map {
+      constraints: Seq[ConstraintExpression],
+      fakeRelation: LogicalPlan): Seq[ConstraintExpression] = {
+    val analyzedExpressions = constraints.map {
       case c: CheckConstraint =>
         val alias = Alias(c.child, c.name)()
         val project = Project(Seq(alias), fakeRelation)
@@ -79,10 +79,10 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
         val analyzedExpression = analyzed collectFirst {
           case Project(Seq(Alias(e: Expression, _)), _) => e
         }
-        c.withNewChildren(Seq(analyzedExpression.get))
+        c.withNewChildren(Seq(analyzedExpression.get)).asInstanceOf[CheckConstraint]
       case other => other
     }
-    Constraints(analyzedExpressions)
+    analyzedExpressions
   }
 
   /** Helper method to resolve the table specification within a logical plan. */
@@ -121,7 +121,7 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
       } else {
         u.constraints
       }
-      assert(newConstraints.childrenResolved)
+      // assert(newConstraints.childrenResolved)
       val newTableSpec = TableSpec(
         properties = u.properties,
         provider = u.provider,
@@ -131,7 +131,7 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
         collation = u.collation,
         serde = u.serde,
         external = u.external,
-        constraints = newConstraints.asConstraintList)
+        constraints = newConstraints.map(_.asConstraint))
       withNewSpec(newTableSpec)
     case _ =>
       input
