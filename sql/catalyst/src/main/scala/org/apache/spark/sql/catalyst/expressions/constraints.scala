@@ -18,7 +18,9 @@ package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
+import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.connector.catalog.constraints.Constraint
+import org.apache.spark.sql.connector.expressions.FieldReference
 import org.apache.spark.sql.types.{DataType, StringType}
 
 trait TableConstraint {
@@ -35,6 +37,12 @@ trait TableConstraint {
   def defaultName: String
 
   def defaultConstraintCharacteristic: ConstraintCharacteristic
+
+  protected def getCharacteristicValues: (Boolean, Boolean) = {
+    val rely = characteristic.rely.getOrElse(defaultConstraintCharacteristic.rely.get)
+    val enforced = characteristic.enforced.getOrElse(defaultConstraintCharacteristic.enforced.get)
+    (rely, enforced)
+  }
 }
 
 case class ConstraintCharacteristic(enforced: Option[Boolean], rely: Option[Boolean])
@@ -54,9 +62,7 @@ case class CheckConstraint(
 
   def asConstraint: Constraint = {
     val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
-    val rely = characteristic.rely.getOrElse(defaultConstraintCharacteristic.rely.get)
-    val enforced =
-      characteristic.enforced.getOrElse(defaultConstraintCharacteristic.enforced.get)
+    val (rely, enforced) = getCharacteristicValues
     val constraintName = if (name == null) defaultName else name
     Constraint
       .check(constraintName)
@@ -88,4 +94,67 @@ case class CheckConstraint(
   override def sql: String = s"CONSTRAINT $name CHECK ($condition)"
 
   override def dataType: DataType = StringType
+}
+
+case class PrimaryKeyConstraint(
+    columns: Seq[String],
+    override val name: String = null,
+    override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
+  extends TableConstraint {
+
+  override def asConstraint: Constraint = {
+    val (rely, enforced) = getCharacteristicValues
+    val constraintName = if (name == null) defaultName else name
+    Constraint
+      .primaryKey(constraintName, columns.map(FieldReference.column).toArray)
+      .rely(rely)
+      .enforced(enforced)
+      .validationStatus(Constraint.ValidationStatus.UNVALIDATED)
+      .build()
+  }
+
+  override def withNameAndCharacteristic(
+      name: String,
+      c: ConstraintCharacteristic): TableConstraint = {
+    copy(name = name, characteristic = c)
+  }
+
+  override def defaultName: String = "pk"
+
+  override def defaultConstraintCharacteristic: ConstraintCharacteristic =
+    ConstraintCharacteristic(enforced = Some(true), rely = Some(true))
+}
+
+case class ForeignKeyConstraint(
+    override val name: String = null,
+    childColumns: Seq[String] = Seq.empty,
+    parentTable: Identifier = null,
+    parentColumns: Seq[String] = Seq.empty,
+    override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
+  extends TableConstraint {
+
+  override def asConstraint: Constraint = {
+    val (rely, enforced) = getCharacteristicValues
+    val constraintName = if (name == null) defaultName else name
+    Constraint
+      .foreignKey(constraintName,
+        childColumns.map(FieldReference.column).toArray,
+        parentTable,
+        parentColumns.map(FieldReference.column).toArray)
+      .rely(rely)
+      .enforced(enforced)
+      .validationStatus(Constraint.ValidationStatus.UNVALIDATED)
+      .build()
+  }
+
+  override def withNameAndCharacteristic(
+      name: String,
+      c: ConstraintCharacteristic): TableConstraint = {
+    copy(name = name, characteristic = c)
+  }
+
+  override def defaultName: String = "fk"
+
+  override def defaultConstraintCharacteristic: ConstraintCharacteristic =
+    ConstraintCharacteristic(enforced = Some(true), rely = Some(true))
 }
