@@ -261,7 +261,7 @@ statement
     | ALTER TABLE identifierReference
         (clusterBySpec | CLUSTER BY NONE)                              #alterClusterBy
     | ALTER TABLE identifierReference collationSpec                    #alterTableCollation
-    | ALTER TABLE identifierReference ADD constraintSpec               #addTableConstraint
+    | ALTER TABLE identifierReference ADD tableConstraintDefinition    #addTableConstraint
     | ALTER TABLE identifierReference
         DROP CONSTRAINT (IF EXISTS)? name=identifier
         (RESTRICT | CASCADE)?                                     #dropTableConstraint
@@ -1343,7 +1343,7 @@ tableElementList
     ;
 
 tableElement
-    : constraintSpec
+    : tableConstraintDefinition
     | colDefinition
     ;
 
@@ -1360,7 +1360,7 @@ colDefinitionOption
     | defaultExpression
     | generationExpression
     | commentSpec
-    | constraintSpec
+    | columnConstraint
     ;
 
 generationExpression
@@ -1530,14 +1530,22 @@ number
     | MINUS? BIGDECIMAL_LITERAL       #bigDecimalLiteral
     ;
 
-constraintSpec
-    : (CONSTRAINT name=errorCapturingIdentifier)? constraintExpression constraintCharacteristic*
+columnConstraintDefinition
+    : (CONSTRAINT name=errorCapturingIdentifier)? columnConstraint constraintCharacteristic*
     ;
 
-constraintExpression
+columnConstraint
+    : uniqueSpec
+    | referenceSpec
+    ;
+
+tableConstraintDefinition
+    : (CONSTRAINT name=errorCapturingIdentifier)? tableConstraint constraintCharacteristic*
+    ;
+
+tableConstraint
     : checkConstraint
     | uniqueConstraint
-    | primaryKeyConstraint
     | foreignKeyConstraint
     ;
 
@@ -1545,16 +1553,21 @@ checkConstraint
     : CHECK LEFT_PAREN (expr=booleanExpression) RIGHT_PAREN
     ;
 
-uniqueConstraint
-    : UNIQUE identifierList
+uniqueSpec
+    : UNIQUE
+    | PRIMARY KEY
     ;
 
-primaryKeyConstraint
-    : PRIMARY KEY identifierList
+uniqueConstraint
+    : uniqueSpec identifierList
+    ;
+
+referenceSpec
+    : REFERENCES multipartIdentifier (LEFT_PAREN parentColumns=identifierList RIGHT_PAREN)?
     ;
 
 foreignKeyConstraint
-    : FOREIGN KEY identifierList REFERENCES table=multipartIdentifier identifierList
+    : FOREIGN KEY LEFT_PAREN identifierList RIGHT_PAREN referenceSpec
     ;
 
 constraintCharacteristic

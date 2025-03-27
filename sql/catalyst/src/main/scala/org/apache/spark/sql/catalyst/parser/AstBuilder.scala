@@ -3887,7 +3887,7 @@ class AstBuilder extends DataTypeAstBuilder
     var defaultExpression: Option[DefaultExpressionContext] = None
     var generationExpression: Option[GenerationExpressionContext] = None
     var commentSpec: Option[CommentSpecContext] = None
-    var constraintSpec: Option[ConstraintSpecContext] = None
+    var columnConstraint: Option[ColumnConstraintContext] = None
     ctx.colDefinitionOption().asScala.foreach { option =>
       if (option.NULL != null) {
         blockBang(option.errorCapturingNot)
@@ -3921,12 +3921,12 @@ class AstBuilder extends DataTypeAstBuilder
         }
         commentSpec = Some(spec)
       }
-      Option(option.constraintSpec()).foreach { spec =>
-        if (constraintSpec.isDefined) {
+      Option(option.columnConstraint()).foreach { spec =>
+        if (columnConstraint.isDefined) {
           throw QueryParsingErrors.duplicateTableColumnDescriptor(
             option, name, "CONSTRAINT")
         }
-        constraintSpec = Some(spec)
+        columnConstraint = Some(spec)
       }
     }
 
@@ -3944,8 +3944,14 @@ class AstBuilder extends DataTypeAstBuilder
         case ctx: IdentityColumnContext => visitIdentityColumn(ctx, dataType)
       }
     )
-    val constraint = constraintSpec.map(visitConstraintSpec)
+    val constraint = columnConstraint.map(c => visitColumnConstraint(name, c))
     (columnDef, constraint)
+  }
+
+  private def visitColumnConstraint(
+      columnName: String,
+      ctx: ColumnConstraintContext): TableConstraint = {
+    null
   }
 
   /**
@@ -4718,8 +4724,8 @@ class AstBuilder extends DataTypeAstBuilder
     val constraints = new ArrayBuffer[TableConstraint]()
 
     ctx.tableElement().asScala.foreach { element =>
-      if (element.constraintSpec() != null) {
-        constraints += visitConstraintSpec(element.constraintSpec())
+      if (element.tableConstraintDefinition() != null) {
+        constraints += visitTableConstraintDefinition(element.tableConstraintDefinition())
       } else {
         val (colDef, constraintOpt) = visitColDefinition(element.colDefinition())
         columnDefs += colDef
@@ -5289,7 +5295,8 @@ class AstBuilder extends DataTypeAstBuilder
       AlterTableCollation(table, visitCollationSpec(ctx.collationSpec()))
     }
 
-  override def visitConstraintSpec(ctx: ConstraintSpecContext): TableConstraint =
+  override def visitTableConstraintDefinition(
+      ctx: TableConstraintDefinitionContext): TableConstraint =
     withOrigin(ctx) {
       val name = if (ctx.name != null) {
         ctx.name.getText
@@ -5298,7 +5305,7 @@ class AstBuilder extends DataTypeAstBuilder
       }
       val constraintCharacteristic = visitConstraintCharacteristic(ctx)
       val expr =
-        visitConstraintExpression(ctx.constraintExpression()).asInstanceOf[TableConstraint]
+        visitTableConstraint(ctx.tableConstraint()).asInstanceOf[TableConstraint]
 
       expr.withNameAndCharacteristic(name, constraintCharacteristic)
   }
@@ -5312,7 +5319,7 @@ class AstBuilder extends DataTypeAstBuilder
     }
 
   private def visitConstraintCharacteristic(
-      ctx: ConstraintSpecContext): ConstraintCharacteristic = {
+      ctx: TableConstraintDefinitionContext): ConstraintCharacteristic = {
     var enforcement: Option[String] = None
     var rely: Option[String] = None
     ctx.constraintCharacteristic().asScala.foreach {
@@ -5351,7 +5358,7 @@ class AstBuilder extends DataTypeAstBuilder
     withOrigin(ctx) {
       val table = createUnresolvedTable(
         ctx.identifierReference, "ALTER TABLE ... ADD CONSTRAINT")
-      visitConstraintSpec(ctx.constraintSpec) match {
+      visitTableConstraintDefinition(ctx.tableConstraintDefinition()) match {
         case c: CheckConstraint =>
           AddCheckConstraint(table, c)
       }
