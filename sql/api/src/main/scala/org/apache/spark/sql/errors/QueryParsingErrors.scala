@@ -807,4 +807,8 @@ private[sql] object QueryParsingErrors extends DataTypeErrorsBase {
       messageParameters = Map("constraint" -> constraint),
       ctx)
   }
+
+  def multiplePrimaryKeysError(ctx: ParserRuleContext): Throwable = {
+    new ParseException(errorClass = "MULTIPLE_PRIMARY_KEYS", ctx)
+  }
 }

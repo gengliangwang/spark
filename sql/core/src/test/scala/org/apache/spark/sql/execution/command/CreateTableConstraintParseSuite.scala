@@ -109,4 +109,98 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
     val expected = createExpectedPlan(columns, Seq.empty)
     comparePlans(parsePlan(sql), expected)
   }
+
+
+  test("Create table with primary key - table level") {
+    val sql = "CREATE TABLE t (a INT, b STRING, PRIMARY KEY (a)) USING parquet"
+    val constraint = PrimaryKeyConstraint(columns = Seq("a"))
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with named primary key - table level") {
+    val sql = "CREATE TABLE t (a INT, b STRING, CONSTRAINT pk1 PRIMARY KEY (a)) USING parquet"
+    val constraint = PrimaryKeyConstraint(
+      columns = Seq("a"),
+      name = "pk1"
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with composite primary key - table level") {
+    val sql = "CREATE TABLE t (a INT, b STRING, PRIMARY KEY (a, b)) USING parquet"
+    val constraint = PrimaryKeyConstraint(
+      columns = Seq("a", "b")
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with primary key - column level") {
+    val sql = "CREATE TABLE t (a INT PRIMARY KEY, b STRING) USING parquet"
+    val constraint = PrimaryKeyConstraint(
+      columns = Seq("a")
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with multiple primary keys should fail") {
+    val expectedContext = ExpectedContext(
+      fragment = "a INT PRIMARY KEY, b STRING, PRIMARY KEY (b)",
+      start = 16,
+      stop = 59
+    )
+    checkError(
+      exception = intercept[ParseException] {
+        parsePlan("CREATE TABLE t (a INT PRIMARY KEY, b STRING, PRIMARY KEY (b)) USING parquet")
+      },
+      condition = "MULTIPLE_PRIMARY_KEYS",
+      parameters = Map.empty[String, String],
+      queryContext = Array(expectedContext))
+  }
+
+  test("Create table with unique constraint - table level") {
+    val sql = "CREATE TABLE t (a INT, b STRING, UNIQUE (a)) USING parquet"
+    val constraint = UniqueConstraint(columns = Seq("a"))
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with named unique constraint - table level") {
+    val sql = "CREATE TABLE t (a INT, b STRING, CONSTRAINT uk1 UNIQUE (a)) USING parquet"
+    val constraint = UniqueConstraint(
+      columns = Seq("a"),
+      name = "uk1"
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with composite unique constraint - table level") {
+    val sql = "CREATE TABLE t (a INT, b STRING, UNIQUE (a, b)) USING parquet"
+    val constraint = UniqueConstraint(
+      columns = Seq("a", "b")
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with unique constraint - column level") {
+    val sql = "CREATE TABLE t (a INT UNIQUE, b STRING) USING parquet"
+    val constraint = UniqueConstraint(
+      columns = Seq("a")
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with multiple unique constraints") {
+    val sql = "CREATE TABLE t (a INT UNIQUE, b STRING, UNIQUE (b)) USING parquet"
+    val constraint1 = UniqueConstraint(columns = Seq("a"))
+    val constraint2 = UniqueConstraint(columns = Seq("b"))
+    val constraints = Seq(constraint1, constraint2)
+    verifyConstraints(sql, constraints)
+  }
 }

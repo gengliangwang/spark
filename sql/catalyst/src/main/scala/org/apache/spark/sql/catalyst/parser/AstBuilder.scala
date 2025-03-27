@@ -3953,11 +3953,7 @@ class AstBuilder extends DataTypeAstBuilder
       ctx: ColumnConstraintContext): TableConstraint = {
     val columns = Seq(columnName)
     if (ctx.uniqueSpec() != null) {
-      if (ctx.uniqueSpec().UNIQUE() != null) {
-        UniqueConstraint(columns)
-      } else {
-        PrimaryKeyConstraint(columns)
-      }
+      visitUniqueSpec(ctx.uniqueSpec(), columns)
     } else {
       assert(ctx.referenceSpec() != null)
       val (tableId, refColumns) = visitReferenceSpec(ctx.referenceSpec())
@@ -3967,6 +3963,15 @@ class AstBuilder extends DataTypeAstBuilder
         parentColumns = refColumns)
     }
   }
+
+  private def visitUniqueSpec(ctx: UniqueSpecContext, columns: Seq[String]): TableConstraint =
+    withOrigin(ctx) {
+      if (ctx.UNIQUE() != null) {
+        UniqueConstraint(columns)
+      } else {
+        PrimaryKeyConstraint(columns)
+      }
+    }
 
   override def visitReferenceSpec(ctx: ReferenceSpecContext): (Seq[String], Seq[String]) = {
     val tableId = visitMultipartIdentifier(ctx.multipartIdentifier())
@@ -4736,25 +4741,32 @@ class AstBuilder extends DataTypeAstBuilder
     }
   }
 
-  override def visitTableElementList(ctx: TableElementListContext): TableElementList = {
-    if (ctx == null) {
-      return (Nil, Nil)
-    }
-    val columnDefs = new ArrayBuffer[ColumnDefinition]()
-    val constraints = new ArrayBuffer[TableConstraint]()
-
-    ctx.tableElement().asScala.foreach { element =>
-      if (element.tableConstraintDefinition() != null) {
-        constraints += visitTableConstraintDefinition(element.tableConstraintDefinition())
-      } else {
-        val (colDef, constraintOpt) = visitColDefinition(element.colDefinition())
-        columnDefs += colDef
-        constraintOpt.foreach(constraints += _)
+  override def visitTableElementList(ctx: TableElementListContext): TableElementList =
+    withOrigin(ctx) {
+      if (ctx == null) {
+        return (Nil, Nil)
       }
-    }
+      val columnDefs = new ArrayBuffer[ColumnDefinition]()
+      val constraints = new ArrayBuffer[TableConstraint]()
 
-    (columnDefs.toSeq, constraints.toSeq)
-  }
+      ctx.tableElement().asScala.foreach { element =>
+        if (element.tableConstraintDefinition() != null) {
+          constraints += visitTableConstraintDefinition(element.tableConstraintDefinition())
+        } else {
+          val (colDef, constraintOpt) = visitColDefinition(element.colDefinition())
+          columnDefs += colDef
+          constraintOpt.foreach(constraints += _)
+        }
+      }
+
+      // check if there are multiple primary keys
+      val primaryKeys = constraints.filter(_.isInstanceOf[PrimaryKeyConstraint])
+      if (primaryKeys.size > 1) {
+        throw QueryParsingErrors.multiplePrimaryKeysError(ctx)
+      }
+
+      (columnDefs.toSeq, constraints.toSeq)
+    }
 
   /**
    * Create a table, returning a [[CreateTable]] or [[CreateTableAsSelect]] logical plan.
@@ -5336,6 +5348,13 @@ class AstBuilder extends DataTypeAstBuilder
       CheckConstraint(
         child = expression(ctx.booleanExpression()),
         condition = condition)
+    }
+
+
+  override def visitUniqueConstraint(ctx: UniqueConstraintContext): TableConstraint =
+    withOrigin(ctx) {
+      val columns = visitIdentifierList(ctx.identifierList())
+      visitUniqueSpec(ctx.uniqueSpec(), columns)
     }
 
   private def visitConstraintCharacteristic(
