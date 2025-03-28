@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedTable}
-import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, GreaterThan, Literal, PrimaryKeyConstraint, UniqueConstraint}
+import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, ForeignKeyConstraint, GreaterThan, Literal, PrimaryKeyConstraint, UniqueConstraint}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.plans.logical.AddConstraint
@@ -273,6 +273,99 @@ class AlterTableAddConstraintParseSuite extends ConstraintParseSuiteBase {
         fragment = s"CONSTRAINT uk1 UNIQUE (email) $characteristic1 $characteristic2",
         start = 22,
         stop = 52 + characteristic1.length + characteristic2.length
+      )
+      checkError(
+        exception = e,
+        condition = "INVALID_CONSTRAINT_CHARACTERISTICS",
+        parameters = Map("characteristics" -> s"$characteristic1, $characteristic2"),
+        queryContext = Array(expectedContext))
+    }
+  }
+test("Add foreign key constraint") {
+    Seq(("", null), ("CONSTRAINT fk1", "fk1")).foreach { case (constraintName, expectedName) =>
+      val sql =
+        s"""
+           |ALTER TABLE orders ADD $constraintName FOREIGN KEY (customer_id)
+           |REFERENCES customers (id)
+           |""".stripMargin
+      val parsed = parsePlan(sql)
+      val expected = AddConstraint(
+        UnresolvedTable(
+          Seq("orders"),
+          "ALTER TABLE ... ADD CONSTRAINT"),
+        ForeignKeyConstraint(
+          name = expectedName,
+          childColumns = Seq("customer_id"),
+          parentTableId = Seq("customers"),
+          parentColumns = Seq("id")
+        ))
+      comparePlans(parsed, expected)
+    }
+  }
+
+  test("Add invalid foreign key constraint name") {
+    val sql =
+      """
+        |ALTER TABLE orders ADD CONSTRAINT fk-1 FOREIGN KEY (customer_id)
+        |REFERENCES customers (id)
+        |""".stripMargin
+    val e = intercept[ParseException] {
+      parsePlan(sql)
+    }
+    checkError(e, "PARSE_SYNTAX_ERROR", "42601", Map("error" -> "'-'", "hint" -> ""))
+  }
+
+  test("Add foreign key constraint with empty columns") {
+    val sql =
+      """
+        |ALTER TABLE orders ADD CONSTRAINT fk1 FOREIGN KEY ()
+        |REFERENCES customers (id)
+        |""".stripMargin
+    val e = intercept[ParseException] {
+      parsePlan(sql)
+    }
+    checkError(e, "PARSE_SYNTAX_ERROR", "42601", Map("error" -> "')'", "hint" -> ""))
+  }
+
+  test("Add foreign key constraint with valid characteristic") {
+    validConstraintCharacteristics.foreach { case (enforcedStr, relyStr, characteristic) =>
+      val sql =
+        s"""
+           |ALTER TABLE orders ADD CONSTRAINT fk1 FOREIGN KEY (customer_id)
+           |REFERENCES customers (id) $enforcedStr $relyStr
+           |""".stripMargin
+      val parsed = parsePlan(sql)
+      val expected = AddConstraint(
+        UnresolvedTable(
+          Seq("orders"),
+          "ALTER TABLE ... ADD CONSTRAINT"),
+        ForeignKeyConstraint(
+          name = "fk1",
+          childColumns = Seq("customer_id"),
+          parentTableId = Seq("customers"),
+          parentColumns = Seq("id"),
+          characteristic = characteristic
+        ))
+      comparePlans(parsed, expected)
+    }
+  }
+
+  test("Add foreign key constraint with invalid characteristic") {
+    invalidConstraintCharacteristics.foreach { case (characteristic1, characteristic2) =>
+      val sql =
+        s"""
+           |ALTER TABLE orders ADD CONSTRAINT fk1 FOREIGN KEY (customer_id)
+           |REFERENCES customers (id) $characteristic1 $characteristic2
+           |""".stripMargin
+
+      val e = intercept[ParseException] {
+        parsePlan(sql)
+      }
+      val expectedContext = ExpectedContext(
+        fragment = s"CONSTRAINT fk1 FOREIGN KEY (customer_id)\nREFERENCES customers (id) " +
+          s"$characteristic1 $characteristic2",
+        start = 24,
+        stop = 91 + characteristic1.length + characteristic2.length
       )
       checkError(
         exception = e,

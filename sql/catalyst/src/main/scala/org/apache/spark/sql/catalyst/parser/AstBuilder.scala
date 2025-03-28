@@ -3967,7 +3967,7 @@ class AstBuilder extends DataTypeAstBuilder
 
   private def visitColumnConstraint(
       columnName: String,
-      ctx: ColumnConstraintContext): TableConstraint = {
+      ctx: ColumnConstraintContext): TableConstraint = withOrigin(ctx) {
     val columns = Seq(columnName)
     if (ctx.uniqueSpec() != null) {
       visitUniqueSpec(ctx.uniqueSpec(), columns)
@@ -3990,11 +3990,12 @@ class AstBuilder extends DataTypeAstBuilder
       }
     }
 
-  override def visitReferenceSpec(ctx: ReferenceSpecContext): (Seq[String], Seq[String]) = {
-    val tableId = visitMultipartIdentifier(ctx.multipartIdentifier())
-    val refColumns = visitIdentifierList(ctx.parentColumns)
-    (tableId, refColumns)
-  }
+  override def visitReferenceSpec(ctx: ReferenceSpecContext): (Seq[String], Seq[String]) =
+    withOrigin(ctx) {
+      val tableId = visitMultipartIdentifier(ctx.multipartIdentifier())
+      val refColumns = visitIdentifierList(ctx.parentColumns)
+      (tableId, refColumns)
+    }
 
   /**
    * Create a location string.
