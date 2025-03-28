@@ -95,21 +95,24 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
     }
   }
 
-  val validConstraintCharacteristics = Seq(
-    ("", "ENFORCED VALID NORELY"),
-    ("NOT ENFORCED", "NOT ENFORCED VALID NORELY"),
-    ("NOT ENFORCED NORELY", "NOT ENFORCED VALID NORELY"),
-    ("NORELY NOT ENFORCED", "NOT ENFORCED VALID NORELY"),
-    ("NORELY", "ENFORCED VALID NORELY"),
-    ("NOT ENFORCED RELY", "NOT ENFORCED VALID RELY"),
-    ("RELY NOT ENFORCED", "NOT ENFORCED VALID RELY"),
-    ("NOT ENFORCED RELY", "NOT ENFORCED VALID RELY"),
-    ("RELY NOT ENFORCED", "NOT ENFORCED VALID RELY"),
-    ("RELY", "ENFORCED VALID RELY")
-  )
+  def getConstraintCharacteristics(isCreateTable: Boolean): Seq[(String, String)] = {
+    val validStatus = if (isCreateTable) "UNVALIDATED" else "VALID"
+    Seq(
+      ("", s"ENFORCED $validStatus NORELY"),
+      ("NOT ENFORCED", s"NOT ENFORCED $validStatus NORELY"),
+      ("NOT ENFORCED NORELY", s"NOT ENFORCED $validStatus NORELY"),
+      ("NORELY NOT ENFORCED", s"NOT ENFORCED $validStatus NORELY"),
+      ("NORELY", s"ENFORCED $validStatus NORELY"),
+      ("NOT ENFORCED RELY", s"NOT ENFORCED $validStatus RELY"),
+      ("RELY NOT ENFORCED", s"NOT ENFORCED $validStatus RELY"),
+      ("NOT ENFORCED RELY", s"NOT ENFORCED $validStatus RELY"),
+      ("RELY NOT ENFORCED", s"NOT ENFORCED $validStatus RELY"),
+      ("RELY", s"ENFORCED $validStatus RELY")
+    )
+  }
 
   test("Create table with check constraint") {
-    validConstraintCharacteristics.foreach { case (characteristic, expectedDDL) =>
+    getConstraintCharacteristics(true).foreach { case (characteristic, expectedDDL) =>
       withNamespaceAndTable("ns", "tbl", catalog) { t =>
         val constraintStr = s"CONSTRAINT c1 CHECK (id > 0) $characteristic"
         sql(s"CREATE TABLE $t (id bigint, data string, $constraintStr) $defaultUsing")
@@ -122,7 +125,7 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
   }
 
   test("Alter table add check constraint") {
-    validConstraintCharacteristics.foreach { case (characteristic, expectedDDL) =>
+    getConstraintCharacteristics(false).foreach { case (characteristic, expectedDDL) =>
       withNamespaceAndTable("ns", "tbl", catalog) { t =>
         sql(s"CREATE TABLE $t (id bigint, data string) $defaultUsing")
         assert(loadTable(catalog, "ns", "tbl").constraints.isEmpty)

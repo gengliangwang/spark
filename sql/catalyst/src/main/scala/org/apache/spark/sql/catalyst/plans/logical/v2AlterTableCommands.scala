@@ -296,7 +296,7 @@ case class AddConstraint(
     table: LogicalPlan,
     tableConstraint: TableConstraint) extends AlterTableCommand {
   override def changes: Seq[TableChange] = {
-    val constraint = tableConstraint.asConstraint
+    val constraint = tableConstraint.asConstraint(isCreateTable = false)
     Seq(TableChange.addConstraint(constraint, constraint.enforced()))
   }
 

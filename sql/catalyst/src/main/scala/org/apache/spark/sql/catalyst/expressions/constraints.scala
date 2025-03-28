@@ -24,7 +24,7 @@ import org.apache.spark.sql.types.{DataType, StringType}
 
 trait TableConstraint {
   // Convert to a data source v2 constraint
-  def asConstraint: Constraint
+  def asConstraint(isCreateTable: Boolean): Constraint
 
   def withNameAndCharacteristic(
       name: String,
@@ -60,17 +60,24 @@ case class CheckConstraint(
   with Unevaluable
   with TableConstraint {
 
-  def asConstraint: Constraint = {
+  def asConstraint(isCreateTable: Boolean): Constraint = {
     val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
     val (rely, enforced) = getCharacteristicValues
     val constraintName = if (name == null) defaultName else name
+    // The validation status is set to UNVALIDATED for create table and
+    // VALID for alter table.
+    val validateStatus = if (isCreateTable) {
+      Constraint.ValidationStatus.UNVALIDATED
+    } else {
+      Constraint.ValidationStatus.VALID
+    }
     Constraint
       .check(constraintName)
       .sql(condition)
       .predicate(predicate)
       .rely(rely)
       .enforced(enforced)
-      .validationStatus(Constraint.ValidationStatus.VALID)
+      .validationStatus(validateStatus)
       .build()
   }
 
@@ -102,7 +109,7 @@ case class PrimaryKeyConstraint(
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
   extends TableConstraint {
 
-  override def asConstraint: Constraint = {
+  override def asConstraint(isCreateTable: Boolean): Constraint = {
     val (rely, enforced) = getCharacteristicValues
     val constraintName = if (name == null) defaultName else name
     Constraint
@@ -131,7 +138,7 @@ case class UniqueConstraint(
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
     extends TableConstraint {
 
-  override def asConstraint: Constraint = {
+  override def asConstraint(isCreateTable: Boolean): Constraint = {
     val (rely, enforced) = getCharacteristicValues
     val constraintName = if (name == null) defaultName else name
     Constraint
@@ -166,7 +173,7 @@ case class ForeignKeyConstraint(
   extends TableConstraint {
   import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 
-  override def asConstraint: Constraint = {
+  override def asConstraint(isCreateTable: Boolean): Constraint = {
     val (rely, enforced) = getCharacteristicValues
     val constraintName = if (name == null) defaultName else name
     Constraint
