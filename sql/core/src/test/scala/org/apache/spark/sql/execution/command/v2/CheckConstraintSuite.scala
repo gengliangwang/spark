@@ -89,18 +89,20 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
       val constraint = getCheckConstraint(table)
       assert(constraint.name() == "c1")
       assert(constraint.toDDL ==
-        "CONSTRAINT c1 CHECK from_json(j, 'a INT').a > 1 ENFORCED VALID RELY")
+        "CONSTRAINT c1 CHECK from_json(j, 'a INT').a > 1 ENFORCED VALID NORELY")
       assert(constraint.sql() == "from_json(j, 'a INT').a > 1")
       assert(constraint.predicate() == null)
     }
   }
 
   val validConstraintCharacteristics = Seq(
-    ("", "ENFORCED VALID RELY"),
-    ("NOT ENFORCED", "NOT ENFORCED VALID RELY"),
+    ("", "ENFORCED VALID NORELY"),
+    ("NOT ENFORCED", "NOT ENFORCED VALID NORELY"),
     ("NOT ENFORCED NORELY", "NOT ENFORCED VALID NORELY"),
     ("NORELY NOT ENFORCED", "NOT ENFORCED VALID NORELY"),
     ("NORELY", "ENFORCED VALID NORELY"),
+    ("NOT ENFORCED RELY", "NOT ENFORCED VALID RELY"),
+    ("RELY NOT ENFORCED", "NOT ENFORCED VALID RELY"),
     ("NOT ENFORCED RELY", "NOT ENFORCED VALID RELY"),
     ("RELY NOT ENFORCED", "NOT ENFORCED VALID RELY"),
     ("RELY", "ENFORCED VALID RELY")
@@ -150,7 +152,7 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
           condition = "CONSTRAINT_ALREADY_EXISTS",
           sqlState = "42710",
           parameters = Map("constraintName" -> "abc",
-            "oldConstraint" -> "CONSTRAINT abc CHECK id > 0 ENFORCED VALID RELY")
+            "oldConstraint" -> "CONSTRAINT abc CHECK id > 0 ENFORCED VALID NORELY")
         )
       }
     }

@@ -89,7 +89,7 @@ case class CheckConstraint(
       messageParameters = Map.empty)
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
-    ConstraintCharacteristic(enforced = Some(true), rely = Some(true))
+    ConstraintCharacteristic(enforced = Some(true), rely = Some(false))
 
   override def sql: String = s"CONSTRAINT $name CHECK ($condition)"
 
