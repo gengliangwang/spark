@@ -146,6 +146,16 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
     verifyConstraints(sql, constraints)
   }
 
+  test("Create table with named primary key - column level") {
+    val sql = "CREATE TABLE t (a INT CONSTRAINT pk1 PRIMARY KEY, b STRING) USING parquet"
+    val constraint = PrimaryKeyConstraint(
+      columns = Seq("a"),
+      name = "pk1"
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
   test("Create table with multiple primary keys should fail") {
     val expectedContext = ExpectedContext(
       fragment = "a INT PRIMARY KEY, b STRING, PRIMARY KEY (b)",
@@ -196,11 +206,69 @@ class CreateTableConstraintParseSuite extends ConstraintParseSuiteBase {
     verifyConstraints(sql, constraints)
   }
 
+  test("Create table with named unique constraint - column level") {
+    val sql = "CREATE TABLE t (a INT CONSTRAINT uk1 UNIQUE, b STRING) USING parquet"
+    val constraint = UniqueConstraint(
+      columns = Seq("a"),
+      name = "uk1"
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
   test("Create table with multiple unique constraints") {
     val sql = "CREATE TABLE t (a INT UNIQUE, b STRING, UNIQUE (b)) USING parquet"
     val constraint1 = UniqueConstraint(columns = Seq("a"))
     val constraint2 = UniqueConstraint(columns = Seq("b"))
     val constraints = Seq(constraint1, constraint2)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with foreign key - table level") {
+    val sql = "CREATE TABLE t (a INT, b STRING," +
+      " FOREIGN KEY (a) REFERENCES parent(id)) USING parquet"
+    val constraint = ForeignKeyConstraint(
+      childColumns = Seq("a"),
+      parentTableId = Seq("parent"),
+      parentColumns = Seq("id")
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with named foreign key - table level") {
+    val sql = "CREATE TABLE t (a INT, b STRING, CONSTRAINT fk1 FOREIGN KEY (a)" +
+      " REFERENCES parent(id)) USING parquet"
+    val constraint = ForeignKeyConstraint(
+      childColumns = Seq("a"),
+      parentTableId = Seq("parent"),
+      parentColumns = Seq("id"),
+      name = "fk1"
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with foreign key - column level") {
+    val sql = "CREATE TABLE t (a INT REFERENCES parent(id), b STRING) USING parquet"
+    val constraint = ForeignKeyConstraint(
+      childColumns = Seq("a"),
+      parentTableId = Seq("parent"),
+      parentColumns = Seq("id")
+    )
+    val constraints = Seq(constraint)
+    verifyConstraints(sql, constraints)
+  }
+
+  test("Create table with named foreign key - column level") {
+    val sql = "CREATE TABLE t (a INT CONSTRAINT fk1 REFERENCES parent(id), b STRING) USING parquet"
+    val constraint = ForeignKeyConstraint(
+      childColumns = Seq("a"),
+      parentTableId = Seq("parent"),
+      parentColumns = Seq("id"),
+      name = "fk1"
+    )
+    val constraints = Seq(constraint)
     verifyConstraints(sql, constraints)
   }
 }

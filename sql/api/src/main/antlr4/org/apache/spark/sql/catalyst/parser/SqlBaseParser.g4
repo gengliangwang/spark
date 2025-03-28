@@ -1360,7 +1360,7 @@ colDefinitionOption
     | defaultExpression
     | generationExpression
     | commentSpec
-    | columnConstraint
+    | columnConstraintDefinition
     ;
 
 generationExpression
@@ -1563,11 +1563,11 @@ uniqueConstraint
     ;
 
 referenceSpec
-    : REFERENCES multipartIdentifier (LEFT_PAREN parentColumns=identifierList RIGHT_PAREN)?
+    : REFERENCES multipartIdentifier (parentColumns=identifierList)?
     ;
 
 foreignKeyConstraint
-    : FOREIGN KEY LEFT_PAREN identifierList RIGHT_PAREN referenceSpec
+    : FOREIGN KEY identifierList referenceSpec
     ;
 
 constraintCharacteristic

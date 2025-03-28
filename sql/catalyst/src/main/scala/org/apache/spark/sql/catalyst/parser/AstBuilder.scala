@@ -3887,7 +3887,7 @@ class AstBuilder extends DataTypeAstBuilder
     var defaultExpression: Option[DefaultExpressionContext] = None
     var generationExpression: Option[GenerationExpressionContext] = None
     var commentSpec: Option[CommentSpecContext] = None
-    var columnConstraint: Option[ColumnConstraintContext] = None
+    var columnConstraint: Option[ColumnConstraintDefinitionContext] = None
     ctx.colDefinitionOption().asScala.foreach { option =>
       if (option.NULL != null) {
         blockBang(option.errorCapturingNot)
@@ -3921,12 +3921,12 @@ class AstBuilder extends DataTypeAstBuilder
         }
         commentSpec = Some(spec)
       }
-      Option(option.columnConstraint()).foreach { spec =>
+      Option(option.columnConstraintDefinition()).foreach { definition =>
         if (columnConstraint.isDefined) {
           throw QueryParsingErrors.duplicateTableColumnDescriptor(
             option, name, "CONSTRAINT")
         }
-        columnConstraint = Some(spec)
+        columnConstraint = Some(definition)
       }
     }
 
@@ -3944,8 +3944,25 @@ class AstBuilder extends DataTypeAstBuilder
         case ctx: IdentityColumnContext => visitIdentityColumn(ctx, dataType)
       }
     )
-    val constraint = columnConstraint.map(c => visitColumnConstraint(name, c))
+    val constraint = columnConstraint.map(c => visitColumnConstraintDefinition(name, c))
     (columnDef, constraint)
+  }
+
+  private def visitColumnConstraintDefinition(
+      columnName: String,
+      ctx: ColumnConstraintDefinitionContext): TableConstraint = {
+    withOrigin(ctx) {
+      val name = if (ctx.name != null) {
+        ctx.name.getText
+      } else {
+        null
+      }
+      val constraintCharacteristic =
+        visitConstraintCharacteristics(ctx.constraintCharacteristic().asScala.toSeq)
+      val expr = visitColumnConstraint(columnName, ctx.columnConstraint())
+
+      expr.withNameAndCharacteristic(name, constraintCharacteristic)
+    }
   }
 
   private def visitColumnConstraint(
@@ -5335,7 +5352,8 @@ class AstBuilder extends DataTypeAstBuilder
       } else {
         null
       }
-      val constraintCharacteristic = visitConstraintCharacteristic(ctx)
+      val constraintCharacteristic =
+        visitConstraintCharacteristics(ctx.constraintCharacteristic().asScala.toSeq)
       val expr =
         visitTableConstraint(ctx.tableConstraint()).asInstanceOf[TableConstraint]
 
@@ -5357,11 +5375,21 @@ class AstBuilder extends DataTypeAstBuilder
       visitUniqueSpec(ctx.uniqueSpec(), columns)
     }
 
-  private def visitConstraintCharacteristic(
-      ctx: TableConstraintDefinitionContext): ConstraintCharacteristic = {
+  override def visitForeignKeyConstraint(ctx: ForeignKeyConstraintContext): TableConstraint =
+    withOrigin(ctx) {
+      val columns = visitIdentifierList(ctx.identifierList())
+      val (parentTableId, parentColumns) = visitReferenceSpec(ctx.referenceSpec())
+      ForeignKeyConstraint(
+        childColumns = columns,
+        parentTableId = parentTableId,
+        parentColumns = parentColumns)
+    }
+
+  private def visitConstraintCharacteristics(
+      constraintCharacteristics: Seq[ConstraintCharacteristicContext]): ConstraintCharacteristic = {
     var enforcement: Option[String] = None
     var rely: Option[String] = None
-    ctx.constraintCharacteristic().asScala.foreach {
+    constraintCharacteristics.foreach {
       case e if e.enforcedCharacteristic() != null =>
         val text = getOriginalText(e.enforcedCharacteristic()).toUpperCase(Locale.ROOT)
         if (enforcement.isDefined) {
