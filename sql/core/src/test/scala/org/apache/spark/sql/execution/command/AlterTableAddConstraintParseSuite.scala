@@ -17,7 +17,7 @@
 package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedTable}
-import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, GreaterThan, Literal, PrimaryKeyConstraint}
+import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, GreaterThan, Literal, PrimaryKeyConstraint, UniqueConstraint}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.plans.logical.AddConstraint
@@ -191,6 +191,88 @@ class AlterTableAddConstraintParseSuite extends ConstraintParseSuiteBase {
         fragment = s"CONSTRAINT pk1 PRIMARY KEY (id) $characteristic1 $characteristic2",
         start = 22,
         stop = 54 + characteristic1.length + characteristic2.length
+      )
+      checkError(
+        exception = e,
+        condition = "INVALID_CONSTRAINT_CHARACTERISTICS",
+        parameters = Map("characteristics" -> s"$characteristic1, $characteristic2"),
+        queryContext = Array(expectedContext))
+    }
+  }
+
+  test("Add unique constraint") {
+    Seq(("", null), ("CONSTRAINT uk1", "uk1")).foreach { case (constraintName, expectedName) =>
+      val sql =
+        s"""
+           |ALTER TABLE a.b.c ADD $constraintName UNIQUE (email, username)
+           |""".stripMargin
+      val parsed = parsePlan(sql)
+      val expected = AddConstraint(
+        UnresolvedTable(
+          Seq("a", "b", "c"),
+          "ALTER TABLE ... ADD CONSTRAINT"),
+        UniqueConstraint(
+          name = expectedName,
+          columns = Seq("email", "username")
+        ))
+      comparePlans(parsed, expected)
+    }
+  }
+
+  test("Add invalid unique constraint name") {
+    val sql =
+      """
+        |ALTER TABLE a.b.c ADD CONSTRAINT uk-1 UNIQUE (email)
+        |""".stripMargin
+    val e = intercept[ParseException] {
+      parsePlan(sql)
+    }
+    checkError(e, "PARSE_SYNTAX_ERROR", "42601", Map("error" -> "'-'", "hint" -> ""))
+  }
+
+  test("Add unique constraint with empty columns") {
+    val sql =
+      """
+        |ALTER TABLE a.b.c ADD CONSTRAINT uk1 UNIQUE ()
+        |""".stripMargin
+    val e = intercept[ParseException] {
+      parsePlan(sql)
+    }
+    checkError(e, "PARSE_SYNTAX_ERROR", "42601", Map("error" -> "')'", "hint" -> ""))
+  }
+
+  test("Add unique constraint with valid characteristic") {
+    validConstraintCharacteristics.foreach { case (enforcedStr, relyStr, characteristic) =>
+      val sql =
+        s"""
+           |ALTER TABLE a.b.c ADD CONSTRAINT uk1 UNIQUE (email) $enforcedStr $relyStr
+           |""".stripMargin
+      val parsed = parsePlan(sql)
+      val expected = AddConstraint(
+        UnresolvedTable(
+          Seq("a", "b", "c"),
+          "ALTER TABLE ... ADD CONSTRAINT"),
+        UniqueConstraint(
+          name = "uk1",
+          columns = Seq("email"),
+          characteristic = characteristic
+        ))
+      comparePlans(parsed, expected)
+    }
+  }
+
+  test("Add unique constraint with invalid characteristic") {
+    invalidConstraintCharacteristics.foreach { case (characteristic1, characteristic2) =>
+      val sql =
+        s"ALTER TABLE a.b.c ADD CONSTRAINT uk1 UNIQUE (email) $characteristic1 $characteristic2"
+
+      val e = intercept[ParseException] {
+        parsePlan(sql)
+      }
+      val expectedContext = ExpectedContext(
+        fragment = s"CONSTRAINT uk1 UNIQUE (email) $characteristic1 $characteristic2",
+        start = 22,
+        stop = 52 + characteristic1.length + characteristic2.length
       )
       checkError(
         exception = e,
