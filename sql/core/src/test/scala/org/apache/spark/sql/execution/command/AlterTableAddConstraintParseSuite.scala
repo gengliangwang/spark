@@ -17,10 +17,10 @@
 package org.apache.spark.sql.execution.command
 
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedTable}
-import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, GreaterThan, Literal}
+import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, GreaterThan, Literal, PrimaryKeyConstraint}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
-import org.apache.spark.sql.catalyst.plans.logical.AddCheckConstraint
+import org.apache.spark.sql.catalyst.plans.logical.AddConstraint
 
 class AlterTableAddConstraintParseSuite extends ConstraintParseSuiteBase {
 
@@ -30,7 +30,7 @@ class AlterTableAddConstraintParseSuite extends ConstraintParseSuiteBase {
         |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0)
         |""".stripMargin
     val parsed = parsePlan(sql)
-    val expected = AddCheckConstraint(
+    val expected = AddConstraint(
       UnresolvedTable(
         Seq("a", "b", "c"),
         "ALTER TABLE ... ADD CONSTRAINT"),
@@ -71,7 +71,7 @@ class AlterTableAddConstraintParseSuite extends ConstraintParseSuiteBase {
            |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0) $enforcedStr $relyStr
            |""".stripMargin
       val parsed = parsePlan(sql)
-      val expected = AddCheckConstraint(
+      val expected = AddConstraint(
         UnresolvedTable(
           Seq("a", "b", "c"),
           "ALTER TABLE ... ADD CONSTRAINT"),
@@ -109,6 +109,88 @@ class AlterTableAddConstraintParseSuite extends ConstraintParseSuiteBase {
         fragment = s"CONSTRAINT c1 CHECK (d > 0) $characteristic1 $characteristic2",
         start = 22,
         stop = 50 + characteristic1.length + characteristic2.length
+      )
+      checkError(
+        exception = e,
+        condition = "INVALID_CONSTRAINT_CHARACTERISTICS",
+        parameters = Map("characteristics" -> s"$characteristic1, $characteristic2"),
+        queryContext = Array(expectedContext))
+    }
+  }
+
+  test("Add primary key constraint") {
+    Seq(("", null), ("CONSTRAINT pk1", "pk1")).foreach { case (constraintName, expectedName) =>
+      val sql =
+        s"""
+          |ALTER TABLE a.b.c ADD $constraintName PRIMARY KEY (id, name)
+          |""".stripMargin
+      val parsed = parsePlan(sql)
+      val expected = AddConstraint(
+        UnresolvedTable(
+          Seq("a", "b", "c"),
+          "ALTER TABLE ... ADD CONSTRAINT"),
+        PrimaryKeyConstraint(
+          name = expectedName,
+          columns = Seq("id", "name")
+        ))
+      comparePlans(parsed, expected)
+    }
+  }
+
+  test("Add invalid primary key constraint name") {
+    val sql =
+      """
+        |ALTER TABLE a.b.c ADD CONSTRAINT pk-1 PRIMARY KEY (id)
+        |""".stripMargin
+    val e = intercept[ParseException] {
+      parsePlan(sql)
+    }
+    checkError(e, "PARSE_SYNTAX_ERROR", "42601", Map("error" -> "'-'", "hint" -> ""))
+  }
+
+  test("Add primary key constraint with empty columns") {
+    val sql =
+      """
+        |ALTER TABLE a.b.c ADD CONSTRAINT pk1 PRIMARY KEY ()
+        |""".stripMargin
+    val e = intercept[ParseException] {
+      parsePlan(sql)
+    }
+    checkError(e, "PARSE_SYNTAX_ERROR", "42601", Map("error" -> "')'", "hint" -> ""))
+  }
+
+  test("Add primary key constraint with valid characteristic") {
+    validConstraintCharacteristics.foreach { case (enforcedStr, relyStr, characteristic) =>
+      val sql =
+        s"""
+           |ALTER TABLE a.b.c ADD CONSTRAINT pk1 PRIMARY KEY (id) $enforcedStr $relyStr
+           |""".stripMargin
+      val parsed = parsePlan(sql)
+      val expected = AddConstraint(
+        UnresolvedTable(
+          Seq("a", "b", "c"),
+          "ALTER TABLE ... ADD CONSTRAINT"),
+        PrimaryKeyConstraint(
+          name = "pk1",
+          columns = Seq("id"),
+          characteristic = characteristic
+        ))
+      comparePlans(parsed, expected)
+    }
+  }
+
+  test("Add primary key constraint with invalid characteristic") {
+    invalidConstraintCharacteristics.foreach { case (characteristic1, characteristic2) =>
+      val sql =
+        s"ALTER TABLE a.b.c ADD CONSTRAINT pk1 PRIMARY KEY (id) $characteristic1 $characteristic2"
+
+      val e = intercept[ParseException] {
+        parsePlan(sql)
+      }
+      val expectedContext = ExpectedContext(
+        fragment = s"CONSTRAINT pk1 PRIMARY KEY (id) $characteristic1 $characteristic2",
+        start = 22,
+        stop = 54 + characteristic1.length + characteristic2.length
       )
       checkError(
         exception = e,

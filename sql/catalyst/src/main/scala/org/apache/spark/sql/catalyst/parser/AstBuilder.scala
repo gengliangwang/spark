@@ -5425,10 +5425,8 @@ class AstBuilder extends DataTypeAstBuilder
     withOrigin(ctx) {
       val table = createUnresolvedTable(
         ctx.identifierReference, "ALTER TABLE ... ADD CONSTRAINT")
-      visitTableConstraintDefinition(ctx.tableConstraintDefinition()) match {
-        case c: CheckConstraint =>
-          AddCheckConstraint(table, c)
-      }
+      val tableConstraint = visitTableConstraintDefinition(ctx.tableConstraintDefinition())
+      AddConstraint(table, tableConstraint)
     }
 
 

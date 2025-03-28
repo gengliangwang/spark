@@ -23,6 +23,7 @@ import org.apache.spark.sql.connector.expressions.FieldReference
 import org.apache.spark.sql.types.{DataType, StringType}
 
 trait TableConstraint {
+  // Convert to a data source v2 constraint
   def asConstraint: Constraint
 
   def withNameAndCharacteristic(

@@ -20,7 +20,7 @@ package org.apache.spark.sql.catalyst.plans.logical
 import org.apache.spark.sql.catalyst.analysis.{FieldName, FieldPosition, ResolvedFieldName, UnresolvedException}
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.catalog.ClusterBySpec
-import org.apache.spark.sql.catalyst.expressions.{CheckConstraint, Expression, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.{Expression, TableConstraint, Unevaluable}
 import org.apache.spark.sql.catalyst.util.{ResolveDefaultColumns, TypeUtils}
 import org.apache.spark.sql.connector.catalog.{TableCatalog, TableChange}
 import org.apache.spark.sql.errors.QueryCompilationErrors
@@ -292,11 +292,11 @@ case class AlterTableCollation(
 /**
  * The logical plan of the ALTER TABLE ... ADD CONSTRAINT command.
  */
-case class AddCheckConstraint(
+case class AddConstraint(
     table: LogicalPlan,
-    check: CheckConstraint) extends AlterTableCommand {
+    tableConstraint: TableConstraint) extends AlterTableCommand {
   override def changes: Seq[TableChange] = {
-    val constraint = check.asConstraint
+    val constraint = tableConstraint.asConstraint
     Seq(TableChange.addConstraint(constraint, constraint.enforced()))
   }
 
