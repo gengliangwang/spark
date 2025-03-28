@@ -122,7 +122,7 @@ case class PrimaryKeyConstraint(
   override def defaultName: String = "pk"
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
-    ConstraintCharacteristic(enforced = Some(false), rely = Some(true))
+    ConstraintCharacteristic(enforced = Some(false), rely = Some(false))
 }
 
 case class UniqueConstraint(
@@ -154,7 +154,7 @@ case class UniqueConstraint(
       messageParameters = Map.empty)
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
-    ConstraintCharacteristic(enforced = Some(false), rely = Some(true))
+    ConstraintCharacteristic(enforced = Some(false), rely = Some(false))
 }
 
 case class ForeignKeyConstraint(
@@ -189,5 +189,5 @@ case class ForeignKeyConstraint(
   override def defaultName: String = "fk"
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
-    ConstraintCharacteristic(enforced = Some(false), rely = Some(true))
+    ConstraintCharacteristic(enforced = Some(false), rely = Some(false))
 }
