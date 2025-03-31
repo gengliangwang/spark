@@ -5501,6 +5501,12 @@
     },
     "sqlState" : "0A000"
   },
+  "UNSUPPORTED_CONSTRAINT_CHARACTERISTIC": {
+    "message": [
+      "Constraint characteristic '<characteristic>' is not supported for constraint type '<constraintType>'."
+    ],
+    "sqlState": "0A000"
+  },
   "UNSUPPORTED_DATASOURCE_FOR_DIRECT_QUERY" : {
     "message" : [
       "Unsupported data source type for direct query on files: <dataSourceType>"

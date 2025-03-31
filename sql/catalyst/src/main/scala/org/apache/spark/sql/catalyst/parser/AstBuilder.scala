@@ -3961,7 +3961,7 @@ class AstBuilder extends DataTypeAstBuilder
         visitConstraintCharacteristics(ctx.constraintCharacteristic().asScala.toSeq)
       val expr = visitColumnConstraint(columnName, ctx.columnConstraint())
 
-      expr.withNameAndCharacteristic(name, constraintCharacteristic)
+      expr.withNameAndCharacteristic(name, constraintCharacteristic, ctx)
     }
   }
 
@@ -5358,7 +5358,7 @@ class AstBuilder extends DataTypeAstBuilder
       val expr =
         visitTableConstraint(ctx.tableConstraint()).asInstanceOf[TableConstraint]
 
-      expr.withNameAndCharacteristic(name, constraintCharacteristic)
+      expr.withNameAndCharacteristic(name, constraintCharacteristic, ctx)
   }
 
   override def visitCheckConstraint(ctx: CheckConstraintContext): CheckConstraint =

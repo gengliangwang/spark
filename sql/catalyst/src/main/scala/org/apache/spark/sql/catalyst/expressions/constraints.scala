@@ -16,7 +16,10 @@
  */
 package org.apache.spark.sql.catalyst.expressions
 
+import org.antlr.v4.runtime.ParserRuleContext
+
 import org.apache.spark.sql.AnalysisException
+import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
 import org.apache.spark.sql.connector.catalog.constraints.Constraint
 import org.apache.spark.sql.connector.expressions.FieldReference
@@ -28,7 +31,8 @@ trait TableConstraint {
 
   def withNameAndCharacteristic(
       name: String,
-      c: ConstraintCharacteristic): TableConstraint
+      c: ConstraintCharacteristic,
+      ctx: ParserRuleContext): TableConstraint
 
   def name: String
 
@@ -86,7 +90,8 @@ case class CheckConstraint(
 
   override def withNameAndCharacteristic(
       name: String,
-      c: ConstraintCharacteristic): TableConstraint = {
+      c: ConstraintCharacteristic,
+      ctx: ParserRuleContext): TableConstraint = {
     copy(name = name, characteristic = c)
   }
 
@@ -122,7 +127,17 @@ case class PrimaryKeyConstraint(
 
   override def withNameAndCharacteristic(
       name: String,
-      c: ConstraintCharacteristic): TableConstraint = {
+      c: ConstraintCharacteristic,
+      ctx: ParserRuleContext): TableConstraint = {
+    if (c.enforced.contains(true)) {
+      throw new ParseException(
+        errorClass = "UNSUPPORTED_CONSTRAINT_CHARACTERISTIC",
+        messageParameters = Map(
+          "characteristic" -> "ENFORCED",
+          "constraintType" -> "PRIMARY KEY"),
+        ctx = ctx
+      )
+    }
     copy(name = name, characteristic = c)
   }
 
@@ -151,7 +166,17 @@ case class UniqueConstraint(
 
   override def withNameAndCharacteristic(
     name: String,
-    c: ConstraintCharacteristic): TableConstraint = {
+    c: ConstraintCharacteristic,
+    ctx: ParserRuleContext): TableConstraint = {
+    if (c.enforced.contains(true)) {
+      throw new ParseException(
+        errorClass = "UNSUPPORTED_CONSTRAINT_CHARACTERISTIC",
+        messageParameters = Map(
+          "characteristic" -> "ENFORCED",
+          "constraintType" -> "UNIQUE"),
+        ctx = ctx
+      )
+    }
     copy(name = name, characteristic = c)
   }
 
@@ -189,7 +214,17 @@ case class ForeignKeyConstraint(
 
   override def withNameAndCharacteristic(
       name: String,
-      c: ConstraintCharacteristic): TableConstraint = {
+      c: ConstraintCharacteristic,
+      ctx: ParserRuleContext): TableConstraint = {
+    if (c.enforced.contains(true)) {
+      throw new ParseException(
+        errorClass = "UNSUPPORTED_CONSTRAINT_CHARACTERISTIC",
+        messageParameters = Map(
+          "characteristic" -> "ENFORCED",
+          "constraintType" -> "FOREIGN KEY"),
+        ctx = ctx
+      )
+    }
     copy(name = name, characteristic = c)
   }
 
