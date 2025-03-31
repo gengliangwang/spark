@@ -19,9 +19,17 @@ package org.apache.spark.sql.execution.command.v2
 import org.apache.spark.sql.{AnalysisException, QueryTest}
 import org.apache.spark.sql.execution.command.DDLCommandTestUtils
 
-
 class PrimaryKeyConstraintSuite extends QueryTest with CommandSuiteBase with DDLCommandTestUtils {
   override protected def command: String = "ALTER TABLE .. ADD CONSTRAINT"
+
+  private val validConstraintCharacteristics = Seq(
+    ("", "NOT ENFORCED UNVALIDATED NORELY"),
+    ("NOT ENFORCED", "NOT ENFORCED UNVALIDATED NORELY"),
+    ("NOT ENFORCED NORELY", "NOT ENFORCED UNVALIDATED NORELY"),
+    ("NORELY NOT ENFORCED", "NOT ENFORCED UNVALIDATED NORELY"),
+    ("NORELY", "NOT ENFORCED UNVALIDATED NORELY"),
+    ("RELY", "NOT ENFORCED UNVALIDATED RELY")
+  )
 
   test("Add primary key constraint") {
     validConstraintCharacteristics.foreach { case (characteristic, expectedDDL) =>
@@ -89,15 +97,4 @@ class PrimaryKeyConstraintSuite extends QueryTest with CommandSuiteBase with DDL
         "CONSTRAINT pk1 PRIMARY KEY (id1, id2) NOT ENFORCED UNVALIDATED NORELY")
     }
   }
-
-  val validConstraintCharacteristics = Seq(
-    ("", "NOT ENFORCED UNVALIDATED NORELY"),
-    ("NOT ENFORCED", "NOT ENFORCED UNVALIDATED NORELY"),
-    ("NOT ENFORCED NORELY", "NOT ENFORCED UNVALIDATED NORELY"),
-    ("NORELY NOT ENFORCED", "NOT ENFORCED UNVALIDATED NORELY"),
-    ("NORELY", "NOT ENFORCED UNVALIDATED NORELY"),
-    ("ENFORCED RELY", "ENFORCED UNVALIDATED RELY"),
-    ("RELY ENFORCED", "ENFORCED UNVALIDATED RELY"),
-    ("RELY", "NOT ENFORCED UNVALIDATED RELY")
-  )
 }
