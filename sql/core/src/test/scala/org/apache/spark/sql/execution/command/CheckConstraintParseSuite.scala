@@ -28,29 +28,25 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
   override val validConstraintCharacteristics =
     super.validConstraintCharacteristics ++ super.enforcedConstraintCharacteristics
 
+  val constraint1 = CheckConstraint(
+    child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
+    condition = "a > 0",
+    name = "c1")
+  val constraint2 = CheckConstraint(
+    child = EqualTo(UnresolvedAttribute("b"), Literal("foo")),
+    condition = "b = 'foo'",
+    name = "c2")
+
   test("Create table with one check constraint - table level") {
     val sql = "CREATE TABLE t (a INT, b STRING, CONSTRAINT c1 CHECK (a > 0)) USING parquet"
-    val constraint = CheckConstraint(
-      child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
-      condition = "a > 0",
-      name = "c1")
-    val constraints = Seq(constraint)
-    verifyConstraints(sql, constraints)
+    verifyConstraints(sql, Seq(constraint1))
   }
 
   test("Create table with two check constraints - table level") {
     val sql = "CREATE TABLE t (a INT, b STRING, CONSTRAINT c1 CHECK (a > 0), " +
       "CONSTRAINT c2 CHECK (b = 'foo')) USING parquet"
-    val constraint1 = CheckConstraint(
-      child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
-      condition = "a > 0",
-      name = "c1")
-    val constraint2 = CheckConstraint(
-      child = EqualTo(UnresolvedAttribute("b"), Literal("foo")),
-      condition = "b = 'foo'",
-      name = "c2")
-    val constraints = Seq(constraint1, constraint2)
-    verifyConstraints(sql, constraints)
+
+    verifyConstraints(sql, Seq(constraint1, constraint2))
   }
 
   test("Create table with valid characteristic - table level") {
@@ -58,13 +54,8 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
       case (enforcedStr, relyStr, characteristic) =>
         val sql = s"CREATE TABLE t (a INT, b STRING, CONSTRAINT c1 CHECK (a > 0) " +
           s"$enforcedStr $relyStr) USING parquet"
-        val constraint = CheckConstraint(
-          child = GreaterThan(UnresolvedAttribute("a"), Literal(0)),
-          condition = "a > 0",
-          name = "c1",
-          characteristic = characteristic)
-        val constraints = Seq(constraint)
-        verifyConstraints(sql, constraints)
+        val constraint = constraint1.withNameAndCharacteristic("c1", characteristic, null)
+        verifyConstraints(sql, Seq(constraint))
     }
   }
 
@@ -96,18 +87,14 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
   test("Add check constraint") {
     val sql =
       """
-        |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (d > 0)
+        |ALTER TABLE a.b.c ADD CONSTRAINT c1 CHECK (a > 0)
         |""".stripMargin
     val parsed = parsePlan(sql)
     val expected = AddConstraint(
       UnresolvedTable(
         Seq("a", "b", "c"),
         "ALTER TABLE ... ADD CONSTRAINT"),
-      CheckConstraint(
-        child = GreaterThan(UnresolvedAttribute("d"), Literal(0)),
-        condition = "d > 0",
-        name = "c1"
-      ))
+      constraint1)
     comparePlans(parsed, expected)
   }
 
