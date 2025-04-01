@@ -18,7 +18,6 @@ package org.apache.spark.sql.catalyst.expressions
 
 import org.antlr.v4.runtime.ParserRuleContext
 
-import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
 import org.apache.spark.sql.connector.catalog.constraints.Constraint
@@ -27,7 +26,7 @@ import org.apache.spark.sql.types.{DataType, StringType}
 
 trait TableConstraint {
   // Convert to a data source v2 constraint
-  def asConstraint(isCreateTable: Boolean): Constraint
+  def asConstraint(tableName: String, isCreateTable: Boolean): Constraint
 
   def withNameAndCharacteristic(
       name: String,
@@ -38,9 +37,10 @@ trait TableConstraint {
 
   def characteristic: ConstraintCharacteristic
 
-  def defaultName: String
+  // Generate a constraint name based on the table name if the name is not specified
+  protected def generatedName(tableName: String): String
 
-  def defaultConstraintCharacteristic: ConstraintCharacteristic
+  protected def defaultConstraintCharacteristic: ConstraintCharacteristic
 
   protected def getCharacteristicValues: (Boolean, Boolean) = {
     val rely = characteristic.rely.getOrElse(defaultConstraintCharacteristic.rely.get)
@@ -64,10 +64,10 @@ case class CheckConstraint(
   with Unevaluable
   with TableConstraint {
 
-  def asConstraint(isCreateTable: Boolean): Constraint = {
+  def asConstraint(tableName: String, isCreateTable: Boolean): Constraint = {
     val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
     val (rely, enforced) = getCharacteristicValues
-    val constraintName = if (name == null) defaultName else name
+    val constraintName = if (name == null) generatedName(tableName) else name
     // The validation status is set to UNVALIDATED for create table and
     // VALID for alter table.
     val validateStatus = if (isCreateTable) {
@@ -95,10 +95,11 @@ case class CheckConstraint(
     copy(name = name, characteristic = c)
   }
 
-  override def defaultName: String =
-    throw new AnalysisException(
-      errorClass = "INVALID_CHECK_CONSTRAINT.MISSING_NAME",
-      messageParameters = Map.empty)
+  override protected def generatedName(tableName: String): String = {
+    val base = condition.filter(_.isLetterOrDigit).take(20)
+    val rand = scala.util.Random.alphanumeric.take(6).mkString
+    s"${tableName}_chk_${base}_$rand"
+  }
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
     ConstraintCharacteristic(enforced = Some(true), rely = Some(false))
@@ -114,9 +115,9 @@ case class PrimaryKeyConstraint(
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
   extends TableConstraint {
 
-  override def asConstraint(isCreateTable: Boolean): Constraint = {
+  override def asConstraint(tableName: String, isCreateTable: Boolean): Constraint = {
     val (rely, enforced) = getCharacteristicValues
-    val constraintName = if (name == null) defaultName else name
+    val constraintName = if (name == null) generatedName(tableName) else name
     Constraint
       .primaryKey(constraintName, columns.map(FieldReference.column).toArray)
       .rely(rely)
@@ -141,7 +142,7 @@ case class PrimaryKeyConstraint(
     copy(name = name, characteristic = c)
   }
 
-  override def defaultName: String = "pk"
+  override protected def generatedName(tableName: String): String = s"${tableName}_pk"
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
     ConstraintCharacteristic(enforced = Some(false), rely = Some(false))
@@ -153,9 +154,9 @@ case class UniqueConstraint(
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
     extends TableConstraint {
 
-  override def asConstraint(isCreateTable: Boolean): Constraint = {
+  override def asConstraint(tableName: String, isCreateTable: Boolean): Constraint = {
     val (rely, enforced) = getCharacteristicValues
-    val constraintName = if (name == null) defaultName else name
+    val constraintName = if (name == null) generatedName(tableName) else name
     Constraint
       .unique(constraintName, columns.map(FieldReference.column).toArray)
       .rely(rely)
@@ -180,10 +181,11 @@ case class UniqueConstraint(
     copy(name = name, characteristic = c)
   }
 
-  override def defaultName: String =
-    throw new AnalysisException(
-      errorClass = "INVALID_UNIQUE_CONSTRAINT.MISSING_NAME",
-      messageParameters = Map.empty)
+  override protected def generatedName(tableName: String): String = {
+    val base = columns.map(_.filter(_.isLetterOrDigit)).sorted.mkString("_").take(20)
+    val rand = scala.util.Random.alphanumeric.take(6).mkString
+    s"${tableName}_uk_${base}_$rand"
+  }
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
     ConstraintCharacteristic(enforced = Some(false), rely = Some(false))
@@ -198,9 +200,9 @@ case class ForeignKeyConstraint(
   extends TableConstraint {
   import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 
-  override def asConstraint(isCreateTable: Boolean): Constraint = {
+  override def asConstraint(tableName: String, isCreateTable: Boolean): Constraint = {
     val (rely, enforced) = getCharacteristicValues
-    val constraintName = if (name == null) defaultName else name
+    val constraintName = if (name == null) generatedName(tableName) else name
     Constraint
       .foreignKey(constraintName,
         childColumns.map(FieldReference.column).toArray,
@@ -228,7 +230,8 @@ case class ForeignKeyConstraint(
     copy(name = name, characteristic = c)
   }
 
-  override def defaultName: String = "fk"
+  override protected def generatedName(tableName: String): String =
+    s"${tableName}_fk_${parentTableId.last}"
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
     ConstraintCharacteristic(enforced = Some(false), rely = Some(false))
