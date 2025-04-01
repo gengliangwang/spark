@@ -25,9 +25,9 @@ import org.apache.spark.sql.execution.command.DDLCommandTestUtils
 class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLCommandTestUtils {
   override protected def command: String = "ALTER TABLE .. ADD CONSTRAINT"
 
-  test("Nondeterministic expression") {
+  test("Nondeterministic expression -- alter table") {
     withTable("t") {
-      sql("create table t(i double) using parquet")
+      sql("create table t(i double)")
       val query =
         """
           |ALTER TABLE t ADD CONSTRAINT c1 CHECK (i > rand(0))
@@ -49,7 +49,31 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
     }
   }
 
-  test("Expression referring a column of another table") {
+  test("Nondeterministic expression -- create table") {
+    Seq(
+      "create table t(i double check (i > rand(0)))",
+      "create table t(i double, constraint c1 check (i > rand(0)))",
+      "replace table t(i double check (i > rand(0)))",
+      "replace table t(i double, constraint c1 check (i > rand(0)))"
+    ).foreach { query =>
+      withTable("t") {
+        val error = intercept[AnalysisException] {
+          sql(query)
+        }
+        checkError(
+          exception = error,
+          condition = "INVALID_CHECK_CONSTRAINT.NONDETERMINISTIC",
+          sqlState = "42621",
+          parameters = Map.empty,
+          context = ExpectedContext(
+            fragment = "i > rand(0)"
+          )
+        )
+      }
+    }
+  }
+
+  test("Expression referring a column of another table -- alter table") {
     withTable("t", "t2") {
       sql("create table t(i double) using parquet")
       sql("create table t2(j string) using parquet")
@@ -69,6 +93,25 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
           fragment = "t2.j",
           start = 44,
           stop = 47
+        )
+      )
+    }
+  }
+
+  test("Expression referring a column of another table -- create and replace table") {
+    withTable("t", "t2") {
+      sql("create table t(i double) using parquet")
+      val query = "create table t2(j string check(t.i > 0)) using parquet"
+      val error = intercept[AnalysisException] {
+        sql(query)
+      }
+      checkError(
+        exception = error,
+        condition = "UNRESOLVED_COLUMN.WITH_SUGGESTION",
+        sqlState = "42703",
+        parameters = Map("objectName" -> "`t`.`i`", "proposal" -> "`j`"),
+        context = ExpectedContext(
+          fragment = "t.i"
         )
       )
     }

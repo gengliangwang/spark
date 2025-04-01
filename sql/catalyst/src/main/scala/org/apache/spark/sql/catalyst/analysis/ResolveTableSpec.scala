@@ -76,10 +76,16 @@ object ResolveTableSpec extends Rule[LogicalPlan] {
         val analyzed = DefaultColumnAnalyzer.execute(project)
         DefaultColumnAnalyzer.checkAnalysis0(analyzed)
 
-        val analyzedExpression = analyzed collectFirst {
+        val analyzedExpression = (analyzed collectFirst {
           case Project(Seq(Alias(e: Expression, _)), _) => e
+        }).get
+        if (!analyzedExpression.deterministic) {
+          analyzedExpression.failAnalysis(
+            errorClass = "INVALID_CHECK_CONSTRAINT.NONDETERMINISTIC",
+            messageParameters = Map.empty
+          )
         }
-        c.withNewChildren(Seq(analyzedExpression.get)).asInstanceOf[CheckConstraint]
+        c.withNewChildren(Seq(analyzedExpression)).asInstanceOf[CheckConstraint]
       case other => other
     }
     analyzedExpressions
