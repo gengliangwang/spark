@@ -59,7 +59,7 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
     }
   }
 
-  test("Create table with invalid characteristic") {
+  test("Create table with invalid characteristic - table level") {
     invalidConstraintCharacteristics.foreach { case (characteristic1, characteristic2) =>
       val constraintStr = s"CONSTRAINT c1 CHECK (a > 0) $characteristic1 $characteristic2"
       val expectedContext = ExpectedContext(
@@ -70,6 +70,52 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
       checkError(
         exception = intercept[ParseException] {
           parsePlan(s"CREATE TABLE t (a INT, b STRING, $constraintStr ) USING parquet")
+        },
+        condition = "INVALID_CONSTRAINT_CHARACTERISTICS",
+        parameters = Map("characteristics" -> s"$characteristic1, $characteristic2"),
+        queryContext = Array(expectedContext))
+    }
+  }
+
+  test("Create table with one check constraint - column level") {
+    val sql = "CREATE TABLE t (a INT CONSTRAINT c1 CHECK (a > 0), b STRING) USING parquet"
+    verifyConstraints(sql, Seq(constraint1))
+  }
+
+  test("Create table with two check constraints - column level") {
+    val sql = "CREATE TABLE t (a INT CONSTRAINT c1 CHECK (a > 0), " +
+      "b STRING CONSTRAINT c2 CHECK (b = 'foo')) USING parquet"
+    verifyConstraints(sql, Seq(constraint1, constraint2))
+  }
+
+  test("Create table with mixed column and table level check constraints") {
+    val sql = "CREATE TABLE t (a INT CONSTRAINT c1 CHECK (a > 0), b STRING, " +
+      "CONSTRAINT c2 CHECK (b = 'foo')) USING parquet"
+    verifyConstraints(sql, Seq(constraint1, constraint2))
+  }
+
+  test("Create table with valid characteristic - column level") {
+    validConstraintCharacteristics.foreach {
+      case (enforcedStr, relyStr, characteristic) =>
+        val sql = s"CREATE TABLE t (a INT CONSTRAINT c1 CHECK (a > 0)" +
+          s" $enforcedStr $relyStr, b STRING) USING parquet"
+        val constraint = constraint1.withNameAndCharacteristic("c1", characteristic, null)
+        verifyConstraints(sql, Seq(constraint))
+    }
+  }
+
+  test("Create table with invalid characteristic - column level") {
+    invalidConstraintCharacteristics.foreach { case (characteristic1, characteristic2) =>
+      val constraintStr = s"CONSTRAINT c1 CHECK (a > 0) $characteristic1 $characteristic2"
+      val sql = s"CREATE TABLE t (a INT $constraintStr, b STRING) USING parquet"
+      val expectedContext = ExpectedContext(
+        fragment = s"CONSTRAINT c1 CHECK (a > 0) $characteristic1 $characteristic2",
+        start = 22,
+        stop = 50 + characteristic1.length + characteristic2.length
+      )
+      checkError(
+        exception = intercept[ParseException] {
+          parsePlan(sql)
         },
         condition = "INVALID_CONSTRAINT_CHARACTERISTICS",
         parameters = Map("characteristics" -> s"$characteristic1, $characteristic2"),
