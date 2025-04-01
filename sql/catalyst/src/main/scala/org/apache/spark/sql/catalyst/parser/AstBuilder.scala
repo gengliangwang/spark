@@ -4842,33 +4842,37 @@ class AstBuilder extends DataTypeAstBuilder
         bucketSpec.map(_.asTransform) ++
         clusterBySpec.map(_.asTransform)
 
-    val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
-      collation, serdeInfo, external, constraints)
+    val planOpt = Option(ctx.query).map(plan)
+    withIdentClause(identifierContext, planOpt.toSeq, (identifiers, otherPlans) => {
+      val namedConstraints =
+        constraints.map(c => c.generateConstraintNameIfNeeded(identifiers.last))
+      val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
+        collation, serdeInfo, external, namedConstraints)
+      val identifier = withOrigin(identifierContext) {
+        UnresolvedIdentifier(identifiers)
+      }
+      otherPlans.headOption match {
+        case Some(_) if columns.nonEmpty =>
+          operationNotAllowed(
+            "Schema may not be specified in a Create Table As Select (CTAS) statement",
+            ctx)
 
-    Option(ctx.query).map(plan) match {
-      case Some(_) if columns.nonEmpty =>
-        operationNotAllowed(
-          "Schema may not be specified in a Create Table As Select (CTAS) statement",
-          ctx)
+        case Some(_) if partCols.nonEmpty =>
+          // non-reference partition columns are not allowed because schema can't be specified
+          operationNotAllowed(
+            "Partition column types may not be specified in Create Table As Select (CTAS)",
+            ctx)
 
-      case Some(_) if partCols.nonEmpty =>
-        // non-reference partition columns are not allowed because schema can't be specified
-        operationNotAllowed(
-          "Partition column types may not be specified in Create Table As Select (CTAS)",
-          ctx)
+        case Some(query) =>
+          CreateTableAsSelect(identifier, partitioning, query, tableSpec, Map.empty, ifNotExists)
 
-      case Some(query) =>
-        CreateTableAsSelect(withIdentClause(identifierContext, UnresolvedIdentifier(_)),
-          partitioning, query, tableSpec, Map.empty, ifNotExists)
-
-      case _ =>
-        // Note: table schema includes both the table columns list and the partition columns
-        // with data type.
-        val allColumns = columns ++ partCols
-        CreateTable(
-          withIdentClause(identifierContext, UnresolvedIdentifier(_)),
-          allColumns, partitioning, tableSpec, ignoreIfExists = ifNotExists)
-    }
+        case _ =>
+          // Note: table schema includes both the table columns list and the partition columns
+          // with data type.
+          val allColumns = columns ++ partCols
+          CreateTable(identifier, allColumns, partitioning, tableSpec, ignoreIfExists = ifNotExists)
+      }
+    })
   }
 
   /**
@@ -5424,12 +5428,13 @@ class AstBuilder extends DataTypeAstBuilder
    */
   override def visitAddTableConstraint(ctx: AddTableConstraintContext): LogicalPlan =
     withOrigin(ctx) {
-      val table = createUnresolvedTable(
-        ctx.identifierReference, "ALTER TABLE ... ADD CONSTRAINT")
       val tableConstraint = visitTableConstraintDefinition(ctx.tableConstraintDefinition())
-      AddConstraint(table, tableConstraint)
+      withIdentClause(ctx.identifierReference, identifiers => {
+        val table = UnresolvedTable(identifiers, "ALTER TABLE ... ADD CONSTRAINT")
+        val namedConstraint = tableConstraint.generateConstraintNameIfNeeded(identifiers.last)
+        AddConstraint(table, namedConstraint)
+      })
     }
-
 
   /**
    * Parse a [[DropConstraint]] command.

@@ -1535,7 +1535,8 @@ columnConstraintDefinition
     ;
 
 columnConstraint
-    : uniqueSpec
+    : checkConstraint
+    | uniqueSpec
     | referenceSpec
     ;
 
