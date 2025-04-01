@@ -27,6 +27,7 @@ class ForeignKeyConstraintParseSuite extends ConstraintParseSuiteBase {
     val sql = "CREATE TABLE t (a INT, b STRING," +
       " FOREIGN KEY (a) REFERENCES parent(id)) USING parquet"
     val constraint = ForeignKeyConstraint(
+      name = "t_parent_fk",
       childColumns = Seq("a"),
       parentTableId = Seq("parent"),
       parentColumns = Seq("id")
@@ -51,6 +52,7 @@ class ForeignKeyConstraintParseSuite extends ConstraintParseSuiteBase {
   test("Create table with foreign key - column level") {
     val sql = "CREATE TABLE t (a INT REFERENCES parent(id), b STRING) USING parquet"
     val constraint = ForeignKeyConstraint(
+      name = "t_parent_fk",
       childColumns = Seq("a"),
       parentTableId = Seq("parent"),
       parentColumns = Seq("id")
@@ -72,7 +74,9 @@ class ForeignKeyConstraintParseSuite extends ConstraintParseSuiteBase {
   }
 
   test("Add foreign key constraint") {
-    Seq(("", null), ("CONSTRAINT fk1", "fk1")).foreach { case (constraintName, expectedName) =>
+    Seq(
+      ("", "orders_customers_fk"),
+      ("CONSTRAINT fk1", "fk1")).foreach { case (constraintName, expectedName) =>
       val sql =
         s"""
            |ALTER TABLE orders ADD $constraintName FOREIGN KEY (customer_id)

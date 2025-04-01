@@ -238,7 +238,7 @@ case class ForeignKeyConstraint(
   }
 
   override protected def generateConstraintName(tableName: String): String =
-    s"${tableName}_fk_${parentTableId.last}"
+    s"${tableName}_${parentTableId.last}_fk"
 
   override def defaultConstraintCharacteristic: ConstraintCharacteristic =
     ConstraintCharacteristic(enforced = Some(false), rely = Some(false))
