@@ -19,7 +19,7 @@ package org.apache.spark.sql.execution.command
 import org.apache.spark.sql.catalyst.analysis.{AnalysisTest, UnresolvedIdentifier}
 import org.apache.spark.sql.catalyst.expressions.{ConstraintCharacteristic, TableConstraint}
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
-import org.apache.spark.sql.catalyst.plans.logical.{ColumnDefinition, CreateTable, OptionList, UnresolvedTableSpec}
+import org.apache.spark.sql.catalyst.plans.logical.{ColumnDefinition, CreateTable, LogicalPlan, OptionList, ReplaceTable, UnresolvedTableSpec}
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{IntegerType, StringType}
 
@@ -56,21 +56,30 @@ abstract class ConstraintParseSuiteBase extends AnalysisTest with SharedSparkSes
 
   protected def createExpectedPlan(
       columns: Seq[ColumnDefinition],
-      constraints: Seq[TableConstraint]): CreateTable = {
+      constraints: Seq[TableConstraint],
+      isCreateTable: Boolean = true): LogicalPlan = {
     val tableId = UnresolvedIdentifier(Seq("t"))
     val tableSpec = UnresolvedTableSpec(
       Map.empty[String, String], Some("parquet"), OptionList(Seq.empty),
       None, None, None, None, false, constraints)
-    CreateTable(tableId, columns, Seq.empty, tableSpec, false)
+    if (isCreateTable) {
+      CreateTable(tableId, columns, Seq.empty, tableSpec, false)
+    } else {
+      ReplaceTable(tableId, columns, Seq.empty, tableSpec, false)
+    }
   }
 
-  protected def verifyConstraints(sql: String, constraints: Seq[TableConstraint]): Unit = {
+  protected def verifyConstraints(
+      sql: String,
+      constraints: Seq[TableConstraint],
+      isCreateTable: Boolean = true): Unit = {
     val parsed = parsePlan(sql)
     val columns = Seq(
       ColumnDefinition("a", IntegerType),
       ColumnDefinition("b", StringType)
     )
-    val expected = createExpectedPlan(columns = columns, constraints = constraints)
+    val expected = createExpectedPlan(
+      columns = columns, constraints = constraints, isCreateTable = isCreateTable)
     comparePlans(parsed, expected)
   }
 }

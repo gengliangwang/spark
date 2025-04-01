@@ -21,7 +21,7 @@ import org.apache.spark.sql.catalyst.analysis.{UnresolvedAttribute, UnresolvedTa
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.parser.CatalystSqlParser.parsePlan
 import org.apache.spark.sql.catalyst.parser.ParseException
-import org.apache.spark.sql.catalyst.plans.logical.{AddConstraint, ColumnDefinition, CreateTable, UnresolvedTableSpec}
+import org.apache.spark.sql.catalyst.plans.logical.{AddConstraint, ColumnDefinition, CreateTable, ReplaceTable, UnresolvedTableSpec}
 import org.apache.spark.sql.types.StringType
 
 class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
@@ -81,6 +81,53 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
     val sql = "CREATE TABLE t (constraint STRING) USING parquet"
     val columns = Seq(ColumnDefinition("constraint", StringType))
     val expected = createExpectedPlan(columns, Seq.empty)
+    comparePlans(parsePlan(sql), expected)
+  }
+
+  test("Replace table with one check constraint - table level") {
+    val sql = "REPLACE TABLE t (a INT, b STRING, CONSTRAINT c1 CHECK (a > 0)) USING parquet"
+    verifyConstraints(sql, Seq(constraint1), isCreateTable = false)
+  }
+
+  test("Replace table with two check constraints - table level") {
+    val sql = "REPLACE TABLE t (a INT, b STRING, CONSTRAINT c1 CHECK (a > 0), " +
+      "CONSTRAINT c2 CHECK (b = 'foo')) USING parquet"
+
+    verifyConstraints(sql, Seq(constraint1, constraint2), isCreateTable = false)
+  }
+
+  test("Replace table with valid characteristic - table level") {
+    validConstraintCharacteristics.foreach {
+      case (enforcedStr, relyStr, characteristic) =>
+        val sql = s"REPLACE TABLE t (a INT, b STRING, CONSTRAINT c1 CHECK (a > 0) " +
+          s"$enforcedStr $relyStr) USING parquet"
+        val constraint = constraint1.withNameAndCharacteristic("c1", characteristic, null)
+        verifyConstraints(sql, Seq(constraint), isCreateTable = false)
+    }
+  }
+
+  test("Replace table with invalid characteristic") {
+    invalidConstraintCharacteristics.foreach { case (characteristic1, characteristic2) =>
+      val constraintStr = s"CONSTRAINT c1 CHECK (a > 0) $characteristic1 $characteristic2"
+      val expectedContext = ExpectedContext(
+        fragment = s"CONSTRAINT c1 CHECK (a > 0) $characteristic1 $characteristic2",
+        start = 34,
+        stop = 62 + characteristic1.length + characteristic2.length
+      )
+      checkError(
+        exception = intercept[ParseException] {
+          parsePlan(s"REPLACE TABLE t (a INT, b STRING, $constraintStr ) USING parquet")
+        },
+        condition = "INVALID_CONSTRAINT_CHARACTERISTICS",
+        parameters = Map("characteristics" -> s"$characteristic1, $characteristic2"),
+        queryContext = Array(expectedContext))
+    }
+  }
+
+  test("Replace table with column 'constraint'") {
+    val sql = "REPLACE TABLE t (constraint STRING) USING parquet"
+    val columns = Seq(ColumnDefinition("constraint", StringType))
+    val expected = createExpectedPlan(columns, Seq.empty, isCreateTable = false)
     comparePlans(parsePlan(sql), expected)
   }
 
@@ -177,6 +224,25 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
 
         case other =>
           fail(s"Expected CreateTable, but got: $other")
+      }
+    }
+  }
+
+  test("Replace table with unnamed check constraint") {
+    Seq(
+      "REPLACE TABLE t (a INT, b STRING, CHECK (a > 0))",
+      "REPLACE TABLE t (a INT CHECK (a > 0), b STRING)"
+    ).foreach { sql =>
+      val plan = parsePlan(sql)
+      plan match {
+        case c: ReplaceTable =>
+          val tableSpec = c.tableSpec.asInstanceOf[UnresolvedTableSpec]
+          assert(tableSpec.constraints.size == 1)
+          assert(tableSpec.constraints.head.isInstanceOf[CheckConstraint])
+          assert(tableSpec.constraints.head.name.matches("t_chk_a0_[0-9a-zA-Z]{6}"))
+
+        case other =>
+          fail(s"Expected ReplaceTable, but got: $other")
       }
     }
   }

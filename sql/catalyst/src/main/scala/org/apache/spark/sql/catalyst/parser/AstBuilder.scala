@@ -4844,8 +4844,7 @@ class AstBuilder extends DataTypeAstBuilder
         bucketSpec.map(_.asTransform) ++
         clusterBySpec.map(_.asTransform)
 
-    val planOpt = Option(ctx.query).map(plan)
-    withIdentClause(identifierContext, planOpt.toSeq, (identifiers, otherPlans) => {
+    withIdentClause(identifierContext, identifiers => {
       val namedConstraints =
         constraints.map(c => c.generateConstraintNameIfNeeded(identifiers.last))
       val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
@@ -4853,7 +4852,7 @@ class AstBuilder extends DataTypeAstBuilder
       val identifier = withOrigin(identifierContext) {
         UnresolvedIdentifier(identifiers)
       }
-      otherPlans.headOption match {
+      Option(ctx.query).map(plan) match {
         case Some(_) if columns.nonEmpty =>
           operationNotAllowed(
             "Schema may not be specified in a Create Table As Select (CTAS) statement",
@@ -4922,34 +4921,38 @@ class AstBuilder extends DataTypeAstBuilder
         bucketSpec.map(_.asTransform) ++
         clusterBySpec.map(_.asTransform)
 
-    val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
-      collation, serdeInfo, external = false, constraints)
+    val identifierContext = ctx.replaceTableHeader().identifierReference()
+    withIdentClause(identifierContext, identifiers => {
+      val namedConstraints =
+        constraints.map(c => c.generateConstraintNameIfNeeded(identifiers.last))
+      val tableSpec = UnresolvedTableSpec(properties, provider, options, location, comment,
+        collation, serdeInfo, external = false, namedConstraints)
+      val identifier = withOrigin(identifierContext) {
+        UnresolvedIdentifier(identifiers)
+      }
+      Option(ctx.query).map(plan) match {
+        case Some(_) if columns.nonEmpty =>
+          operationNotAllowed(
+            "Schema may not be specified in a Replace Table As Select (RTAS) statement",
+            ctx)
 
-    Option(ctx.query).map(plan) match {
-      case Some(_) if columns.nonEmpty =>
-        operationNotAllowed(
-          "Schema may not be specified in a Replace Table As Select (RTAS) statement",
-          ctx)
+        case Some(_) if partCols.nonEmpty =>
+          // non-reference partition columns are not allowed because schema can't be specified
+          operationNotAllowed(
+            "Partition column types may not be specified in Replace Table As Select (RTAS)",
+            ctx)
 
-      case Some(_) if partCols.nonEmpty =>
-        // non-reference partition columns are not allowed because schema can't be specified
-        operationNotAllowed(
-          "Partition column types may not be specified in Replace Table As Select (RTAS)",
-          ctx)
+        case Some(query) =>
+          ReplaceTableAsSelect(identifier, partitioning, query, tableSpec,
+            writeOptions = Map.empty, orCreate = orCreate)
 
-      case Some(query) =>
-        ReplaceTableAsSelect(
-          withIdentClause(ctx.replaceTableHeader.identifierReference(), UnresolvedIdentifier(_)),
-          partitioning, query, tableSpec, writeOptions = Map.empty, orCreate = orCreate)
-
-      case _ =>
-        // Note: table schema includes both the table columns list and the partition columns
-        // with data type.
-        val allColumns = columns ++ partCols
-        ReplaceTable(
-          withIdentClause(ctx.replaceTableHeader.identifierReference(), UnresolvedIdentifier(_)),
-          allColumns, partitioning, tableSpec, orCreate = orCreate)
-    }
+        case _ =>
+          // Note: table schema includes both the table columns list and the partition columns
+          // with data type.
+          val allColumns = columns ++ partCols
+          ReplaceTable(identifier, allColumns, partitioning, tableSpec, orCreate = orCreate)
+      }
+    })
   }
 
   /**
