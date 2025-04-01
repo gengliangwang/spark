@@ -3969,7 +3969,9 @@ class AstBuilder extends DataTypeAstBuilder
       columnName: String,
       ctx: ColumnConstraintContext): TableConstraint = withOrigin(ctx) {
     val columns = Seq(columnName)
-    if (ctx.uniqueSpec() != null) {
+    if (ctx.checkConstraint() != null) {
+      visitCheckConstraint(ctx.checkConstraint())
+    } else if (ctx.uniqueSpec() != null) {
       visitUniqueSpec(ctx.uniqueSpec(), columns)
     } else {
       assert(ctx.referenceSpec() != null)
