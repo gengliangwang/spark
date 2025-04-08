@@ -39,6 +39,7 @@ class CatalogSuite extends SparkFunSuite {
 
   private val emptyProps: util.Map[String, String] = Collections.emptyMap[String, String]
   private val emptyTrans: Array[Transform] = Array.empty
+  private val emptyConstraints: Array[Constraint] = Array.empty
   private val columns: Array[Column] = Array(
     Column.create("id", IntegerType),
     Column.create("data", StringType))
@@ -57,6 +58,14 @@ class CatalogSuite extends SparkFunSuite {
   private val testIdentNew = Identifier.of(testNs, "test_table_new")
   private val testIdentNewQuoted = testIdentNew.asMultipartIdentifier
     .map(part => quoteIdentifier(part)).mkString(".")
+
+  private val constraints: Array[Constraint] = Array(
+    Constraint.primaryKey("pk", Array(FieldReference.column("id"))).build(),
+    Constraint.check("chk").predicateSql("id > 0").build(),
+    Constraint.unique("uk", Array(FieldReference.column("data"))).build(),
+    Constraint.foreignKey("fk", Array(FieldReference.column("data")), testIdentNew,
+      Array(FieldReference.column("id"))).build()
+  )
 
   test("Catalogs can load the catalog") {
     val catalog = newCatalog()
@@ -174,13 +183,6 @@ class CatalogSuite extends SparkFunSuite {
     val columns = Array(
       Column.create("id", IntegerType, false),
       Column.create("data", StringType))
-    val constraints: Array[Constraint] = Array(
-      Constraint.primaryKey("pk", Array(FieldReference.column("id"))).build(),
-      Constraint.check("chk").predicateSql("id > 0").build(),
-      Constraint.unique("uk", Array(FieldReference.column("data"))).build(),
-      Constraint.foreignKey("fk", Array(FieldReference.column("data")), testIdentNew,
-        Array(FieldReference.column("id"))).build()
-    )
     val tableInfo = new TableInfo.Builder()
       .withColumns(columns)
       .withPartitions(emptyTrans)
@@ -843,6 +845,29 @@ class CatalogSuite extends SparkFunSuite {
     }
 
     checkErrorTableNotFound(exc, testIdentQuoted)
+  }
+
+  test("alterTable: add constraint") {
+    val catalog = newCatalog()
+
+    val tableColumns = Array(
+      Column.create("id", IntegerType, false),
+      Column.create("data", StringType))
+    val tableInfo = new TableInfo.Builder()
+      .withColumns(tableColumns)
+      .withPartitions(emptyTrans)
+      .withProperties(emptyProps)
+      .withConstraints(emptyConstraints)
+      .build()
+    val table = catalog.createTable(testIdent, tableInfo)
+
+    assert(table.constraints.isEmpty)
+
+    for ((constraint, index) <- constraints.zipWithIndex) {
+      val updated = catalog.alterTable(testIdent, TableChange.addConstraint(constraint, false))
+      assert(updated.constraints.length === index + 1)
+      assert(updated.constraints.apply(index) === constraint)
+    }
   }
 
   test("dropTable") {
