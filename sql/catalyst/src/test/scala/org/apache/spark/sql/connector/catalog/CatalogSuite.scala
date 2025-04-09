@@ -40,7 +40,6 @@ class CatalogSuite extends SparkFunSuite {
 
   private val emptyProps: util.Map[String, String] = Collections.emptyMap[String, String]
   private val emptyTrans: Array[Transform] = Array.empty
-  private val emptyConstraints: Array[Constraint] = Array.empty
   private val columns: Array[Column] = Array(
     Column.create("id", IntegerType),
     Column.create("data", StringType))
@@ -856,9 +855,6 @@ class CatalogSuite extends SparkFunSuite {
       Column.create("data", StringType))
     val tableInfo = new TableInfo.Builder()
       .withColumns(tableColumns)
-      .withPartitions(emptyTrans)
-      .withProperties(emptyProps)
-      .withConstraints(emptyConstraints)
       .build()
     val table = catalog.createTable(testIdent, tableInfo)
 
@@ -879,8 +875,6 @@ class CatalogSuite extends SparkFunSuite {
       Column.create("data", StringType))
     val tableInfo = new TableInfo.Builder()
       .withColumns(tableColumns)
-      .withPartitions(emptyTrans)
-      .withProperties(emptyProps)
       .withConstraints(constraints)
       .build()
     val table = catalog.createTable(testIdent, tableInfo)
@@ -905,8 +899,6 @@ class CatalogSuite extends SparkFunSuite {
       Column.create("data", StringType))
     val tableInfo = new TableInfo.Builder()
       .withColumns(tableColumns)
-      .withPartitions(emptyTrans)
-      .withProperties(emptyProps)
       .withConstraints(constraints)
       .build()
     val table = catalog.createTable(testIdent, tableInfo)
@@ -928,8 +920,6 @@ class CatalogSuite extends SparkFunSuite {
       Column.create("data", StringType))
     val tableInfo = new TableInfo.Builder()
       .withColumns(tableColumns)
-      .withPartitions(emptyTrans)
-      .withProperties(emptyProps)
       .withConstraints(constraints)
       .build()
     val table = catalog.createTable(testIdent, tableInfo)
@@ -952,8 +942,6 @@ class CatalogSuite extends SparkFunSuite {
       Column.create("data", StringType))
     val tableInfo = new TableInfo.Builder()
       .withColumns(tableColumns)
-      .withPartitions(emptyTrans)
-      .withProperties(emptyProps)
       .withConstraints(constraints)
       .build()
     catalog.createTable(testIdent, tableInfo)
