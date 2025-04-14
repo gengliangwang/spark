@@ -20,9 +20,14 @@ import java.util.UUID
 
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.trees.CurrentOrigin
+import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
+import org.apache.spark.sql.connector.catalog.constraints.Constraint
+import org.apache.spark.sql.connector.expressions.FieldReference
 import org.apache.spark.sql.types.{DataType, StringType}
 
 trait TableConstraint {
+  // Convert to a data source v2 constraint
+  def asConstraint(isCreateTable: Boolean): Constraint
 
   /** Returns the name of the constraint */
   def name: String
@@ -111,6 +116,27 @@ case class CheckConstraint(
   with Unevaluable
   with TableConstraint {
 
+  def asConstraint(isCreateTable: Boolean): Constraint = {
+    val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
+    val enforced = characteristic.enforced.getOrElse(true)
+    val rely = characteristic.rely.getOrElse(false)
+    // The validation status is set to UNVALIDATED for create table and
+    // VALID for alter table.
+    val validateStatus = if (isCreateTable) {
+      Constraint.ValidationStatus.UNVALIDATED
+    } else {
+      Constraint.ValidationStatus.VALID
+    }
+    Constraint
+      .check(name)
+      .predicateSql(condition)
+      .predicate(predicate)
+      .rely(rely)
+      .enforced(enforced)
+      .validationStatus(validateStatus)
+      .build()
+  }
+
   override protected def withNewChildInternal(newChild: Expression): Expression =
     copy(child = newChild)
 
@@ -136,6 +162,18 @@ case class PrimaryKeyConstraint(
     override val tableName: String = null,
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
   extends TableConstraint {
+
+  override def asConstraint(isCreateTable: Boolean): Constraint = {
+    val enforced = characteristic.enforced.getOrElse(false)
+    val rely = characteristic.rely.getOrElse(false)
+    Constraint
+      .primaryKey(name, columns.map(FieldReference.column).toArray)
+      .rely(rely)
+      .enforced(enforced)
+      .validationStatus(Constraint.ValidationStatus.UNVALIDATED)
+      .build()
+  }
+
   override protected def generateConstraintName(tableName: String): String = s"${tableName}_pk"
 
   override def withName(name: String): TableConstraint = copy(name = name)
@@ -154,6 +192,17 @@ case class UniqueConstraint(
     override val tableName: String = null,
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
     extends TableConstraint {
+
+  override def asConstraint(isCreateTable: Boolean): Constraint = {
+    val enforced = characteristic.enforced.getOrElse(false)
+    val rely = characteristic.rely.getOrElse(false)
+    Constraint
+      .unique(name, columns.map(FieldReference.column).toArray)
+      .rely(rely)
+      .enforced(enforced)
+      .validationStatus(Constraint.ValidationStatus.UNVALIDATED)
+      .build()
+  }
 
   override protected def generateConstraintName(tableName: String): String = {
     s"${tableName}_uniq_$randomSuffix"
@@ -177,6 +226,21 @@ case class ForeignKeyConstraint(
     override val tableName: String = null,
     override val characteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
   extends TableConstraint {
+  import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
+
+  override def asConstraint(isCreateTable: Boolean): Constraint = {
+    val enforced = characteristic.enforced.getOrElse(false)
+    val rely = characteristic.rely.getOrElse(false)
+    Constraint
+      .foreignKey(name,
+        childColumns.map(FieldReference.column).toArray,
+        parentTableId.asIdentifier,
+        parentColumns.map(FieldReference.column).toArray)
+      .rely(rely)
+      .enforced(enforced)
+      .validationStatus(Constraint.ValidationStatus.UNVALIDATED)
+      .build()
+  }
 
   override protected def generateConstraintName(tableName: String): String =
     s"${tableName}_${parentTableId.last}_fk_$randomSuffix"
