@@ -1651,3 +1651,14 @@ case class Call(
   override protected def withNewChildInternal(newChild: LogicalPlan): Call =
     copy(procedure = newChild)
 }
+
+case class CheckData(
+    conditions: Seq[Expression],
+    child: LogicalPlan) extends UnaryNode {
+
+  override def output: Seq[Attribute] = child.output
+
+  override protected def withNewChildInternal(newChild: LogicalPlan): LogicalPlan = {
+    copy(child = newChild)
+  }
+}
