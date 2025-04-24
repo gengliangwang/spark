@@ -41,7 +41,11 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
       if (checks.isEmpty) {
         plan
       } else {
-        CheckData()
+        val checkExprs = checks.map { c =>
+          val parsed =
+            catalogManager.v1SessionCatalog.parser.parseExpression(c.predicateSql())
+
+        }
       }
   }
 }
