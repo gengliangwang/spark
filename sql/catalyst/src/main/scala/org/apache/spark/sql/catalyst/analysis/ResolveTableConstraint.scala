@@ -16,7 +16,10 @@
  */
 package org.apache.spark.sql.catalyst.analysis
 
-import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, V2WriteCommand}
+import scala.collection.mutable
+
+import org.apache.spark.sql.catalyst.expressions.{CheckInvariant, Expression}
+import org.apache.spark.sql.catalyst.plans.logical.{CheckData, LogicalPlan, V2WriteCommand}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreePattern.COMMAND
 import org.apache.spark.sql.connector.catalog.CatalogManager
@@ -43,9 +46,16 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
         val checkExprs = checks.map { c =>
           val parsed =
             catalogManager.v1SessionCatalog.parser.parseExpression(c.predicateSql())
+          val columnExtractors = mutable.Map[String, Expression]()
+          parsed.foreachUp {
+            case u: UnresolvedAttribute =>
+              columnExtractors(u.name) = u
 
+            case _ =>
+          }
+          CheckInvariant(parsed, columnExtractors.toSeq, c.name(), c.predicateSql())
         }
-        plan
+        CheckData(checkExprs, plan)
       }
   }
 }
