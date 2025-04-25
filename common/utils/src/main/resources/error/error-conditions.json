@@ -536,6 +536,13 @@
     ],
     "sqlState" : "42P08"
   },
+  "CHECK_CONSTRAINT_VIOLATION" : {
+    "message": [
+      "CHECK constraint <constraintName> <expression> violated by row with values:",
+      "<values>"
+    ],
+    "sqlState": "23001"
+  },
   "CHECKPOINT_RDD_BLOCK_ID_NOT_FOUND" : {
     "message" : [
       "Checkpoint block <rddBlockId> not found!",
@@ -825,12 +832,11 @@
     ],
     "sqlState" : "42704"
   },
-  "CHECK_CONSTRAINT_VIOLATION" : {
+  "CONSTRAINT_DOES_NOT_HAVE_DATA_TYPE" : {
     "message" : [
-      "CHECK constraint <constraintName> <expression> violated by row with values:",
-      "<values>"
+      "Table constraint expressions do not have a data type."
     ],
-    "sqlState" : "23001"
+    "sqlState" : "0A000"
   },
   "CONVERSION_INVALID_INPUT" : {
     "message" : [

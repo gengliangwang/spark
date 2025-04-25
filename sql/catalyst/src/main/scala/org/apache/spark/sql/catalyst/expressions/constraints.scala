@@ -18,6 +18,7 @@ package org.apache.spark.sql.catalyst.expressions
 
 import java.util.UUID
 
+import org.apache.spark.SparkUnsupportedOperationException
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{Block, CodegenContext, ExprCode, JavaCode, TrueLiteral}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
@@ -27,9 +28,9 @@ import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
 import org.apache.spark.sql.connector.catalog.constraints.Constraint
 import org.apache.spark.sql.connector.expressions.FieldReference
 import org.apache.spark.sql.errors.QueryExecutionErrors
-import org.apache.spark.sql.types.{DataType, NullType, StringType}
+import org.apache.spark.sql.types.{DataType, NullType}
 
-trait TableConstraint {
+trait TableConstraint extends Expression with Unevaluable {
   // Convert to a data source v2 constraint
   def toV2Constraint(isCreateTable: Boolean): Constraint
 
@@ -101,6 +102,11 @@ trait TableConstraint {
       )
     }
   }
+
+  override def nullable: Boolean = true
+
+  override def dataType: DataType =
+    throw new SparkUnsupportedOperationException("CONSTRAINT_DOES_NOT_HAVE_DATA_TYPE")
 }
 
 case class ConstraintCharacteristic(enforced: Option[Boolean], rely: Option[Boolean])
@@ -117,7 +123,6 @@ case class CheckConstraint(
     override val tableName: String = null,
     override val userProvidedCharacteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
   extends UnaryExpression
-  with Unevaluable
   with TableConstraint {
 // scalastyle:on line.size.limit
 
@@ -125,13 +130,8 @@ case class CheckConstraint(
     val predicate = new V2ExpressionBuilder(child, true).buildPredicate().orNull
     val enforced = userProvidedCharacteristic.enforced.getOrElse(true)
     val rely = userProvidedCharacteristic.rely.getOrElse(false)
-    // The validation status is set to UNVALIDATED for create table and
-    // VALID for alter table.
-    val validateStatus = if (isCreateTable) {
-      Constraint.ValidationStatus.UNVALIDATED
-    } else {
-      Constraint.ValidationStatus.VALID
-    }
+    // TODO(SPARK-51903): Change the status to VALIDATED when we support validation on ALTER TABLE
+    val validateStatus = Constraint.ValidationStatus.UNVALIDATED
     Constraint
       .check(name)
       .predicateSql(condition)
@@ -151,8 +151,6 @@ case class CheckConstraint(
 
   override def sql: String = s"CONSTRAINT $userProvidedName CHECK ($condition)"
 
-  override def dataType: DataType = StringType
-
   override def withUserProvidedName(name: String): TableConstraint = copy(userProvidedName = name)
 
   override def withTableName(tableName: String): TableConstraint = copy(tableName = tableName)
@@ -167,7 +165,7 @@ case class PrimaryKeyConstraint(
     override val userProvidedName: String = null,
     override val tableName: String = null,
     override val userProvidedCharacteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
-  extends TableConstraint {
+  extends LeafExpression with TableConstraint {
 // scalastyle:on line.size.limit
 
   override def toV2Constraint(isCreateTable: Boolean): Constraint = {
@@ -199,7 +197,7 @@ case class UniqueConstraint(
     override val userProvidedName: String = null,
     override val tableName: String = null,
     override val userProvidedCharacteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
-    extends TableConstraint {
+  extends LeafExpression with TableConstraint {
 // scalastyle:on line.size.limit
 
   override def toV2Constraint(isCreateTable: Boolean): Constraint = {
@@ -235,7 +233,7 @@ case class ForeignKeyConstraint(
     override val userProvidedName: String = null,
     override val tableName: String = null,
     override val userProvidedCharacteristic: ConstraintCharacteristic = ConstraintCharacteristic.empty)
-  extends TableConstraint {
+  extends LeafExpression with TableConstraint {
 // scalastyle:on line.size.limit
 
   import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._

@@ -271,7 +271,8 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
         case c: CreateTable =>
           val tableSpec = c.tableSpec.asInstanceOf[UnresolvedTableSpec]
           assert(tableSpec.constraints.size == 1)
-          assert(tableSpec.constraints.head == constraint1.withUserProvidedName(null))
+          assert(tableSpec.constraints.head ==
+            constraint1.withUserProvidedName(null))
           assert(tableSpec.constraints.head.name.matches("t_chk_[0-9a-f]{7}"))
 
         case other =>
@@ -290,7 +291,8 @@ class CheckConstraintParseSuite extends ConstraintParseSuiteBase {
         case c: ReplaceTable =>
           val tableSpec = c.tableSpec.asInstanceOf[UnresolvedTableSpec]
           assert(tableSpec.constraints.size == 1)
-          assert(tableSpec.constraints.head == constraint1.withUserProvidedName(null))
+          assert(tableSpec.constraints.head ==
+            constraint1.withUserProvidedName(null))
           assert(tableSpec.constraints.head.name.matches("t_chk_[0-9a-f]{7}"))
 
         case other =>
