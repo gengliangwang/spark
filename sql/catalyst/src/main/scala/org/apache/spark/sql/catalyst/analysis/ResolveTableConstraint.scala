@@ -16,8 +16,7 @@
  */
 package org.apache.spark.sql.catalyst.analysis
 
-import org.apache.spark.sql.catalyst.expressions.And
-import org.apache.spark.sql.catalyst.plans.logical.{Filter, LogicalPlan, V2WriteCommand}
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, V2WriteCommand}
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.trees.TreePattern.COMMAND
 import org.apache.spark.sql.connector.catalog.CatalogManager
@@ -46,6 +45,7 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
             catalogManager.v1SessionCatalog.parser.parseExpression(c.predicateSql())
 
         }
+        plan
       }
   }
 }

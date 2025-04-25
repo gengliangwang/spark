@@ -26,10 +26,9 @@ import scala.jdk.CollectionConverters._
 import scala.util.{Failure, Random, Success, Try}
 
 import org.apache.spark.{SparkException, SparkThrowable, SparkUnsupportedOperationException}
-
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst._
-import org.apache.spark.sql.catalyst.analysis.resolver.{AnalyzerBridgeState, HybridAnalyzer, ResolverExtension, ResolverGuard, Resolver => OperatorResolver}
+import org.apache.spark.sql.catalyst.analysis.resolver.{AnalyzerBridgeState, HybridAnalyzer, Resolver => OperatorResolver, ResolverExtension, ResolverGuard}
 import org.apache.spark.sql.catalyst.catalog._
 import org.apache.spark.sql.catalyst.encoders.OuterScopes
 import org.apache.spark.sql.catalyst.expressions._
@@ -49,7 +48,6 @@ import org.apache.spark.sql.catalyst.util.ResolveDefaultColumns._
 import org.apache.spark.sql.connector.catalog.{View => _, _}
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 import org.apache.spark.sql.connector.catalog.TableChange.{After, ColumnPosition}
-import org.apache.spark.sql.connector.catalog.constraints.Check
 import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
 import org.apache.spark.sql.connector.catalog.procedures.{BoundProcedure, ProcedureParameter, UnboundProcedure}
 import org.apache.spark.sql.connector.expressions.{FieldReference, IdentityTransform}

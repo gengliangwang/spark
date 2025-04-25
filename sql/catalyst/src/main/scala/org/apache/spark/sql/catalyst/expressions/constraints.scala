@@ -24,7 +24,7 @@ import org.apache.spark.sql.catalyst.expressions.codegen.Block.BlockHelper
 import org.apache.spark.sql.catalyst.parser.ParseException
 import org.apache.spark.sql.catalyst.trees.CurrentOrigin
 import org.apache.spark.sql.catalyst.util.V2ExpressionBuilder
-import org.apache.spark.sql.connector.catalog.constraints.{Check, Constraint}
+import org.apache.spark.sql.connector.catalog.constraints.Constraint
 import org.apache.spark.sql.connector.expressions.FieldReference
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types.{DataType, NullType, StringType}
@@ -277,7 +277,8 @@ case class ForeignKeyConstraint(
 case class CheckInvariant(
     child: Expression,
     columnExtractors: Seq[(String, Expression)],
-    check: Check)
+    constraintName: String,
+    predicateSql: String)
   extends Expression with NonSQLExpression {
 
   override def children: Seq[Expression] = child +: columnExtractors.map(_._2)
@@ -291,7 +292,7 @@ case class CheckInvariant(
       val values = columnExtractors.map {
         case (column, extractor) => column -> extractor.eval(input)
       }.toMap
-      QueryExecutionErrors.checkViolation(check.name(), check.predicateSql(), values)
+      throw QueryExecutionErrors.checkViolation(constraintName, predicateSql, values)
     }
     null
   }
@@ -329,16 +330,14 @@ case class CheckInvariant(
 
   private def generateExpressionValidationCode(ctx: CodegenContext): Block = {
     val elementValue = child.genCode(ctx)
-    val constraintName = ctx.addReferenceObj("constraintName", check.name())
-    val predicateSql = ctx.addReferenceObj("predicateSql", check.predicateSql())
     val colListName = ctx.freshName("colList")
     val valListName = ctx.freshName("valList")
     code"""${elementValue.code}
           |
           |if (${elementValue.isNull} || ${elementValue.value} == false) {
           |  ${generateColumnValuesCode(colListName, valListName, ctx)}
-          |  org.apache.spark.sql.errors.QueryExecutionErrors.checkViolationJava(
-          |     $constraintName, $predicateSql, $colListName, $valListName);
+          |  throw org.apache.spark.sql.errors.QueryExecutionErrors.checkViolationJava(
+          |     "$constraintName", "$predicateSql", $colListName, $valListName);
           |}
      """.stripMargin
   }
