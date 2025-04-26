@@ -1659,8 +1659,10 @@ case class Call(
 }
 
 case class CheckData(
-    conditions: Seq[Expression],
+    conditions: Seq[CheckInvariant],
     child: LogicalPlan) extends UnaryNode {
+
+  assert(conditions.nonEmpty, "CheckData must have at least one condition")
 
   override def output: Seq[Attribute] = child.output
 

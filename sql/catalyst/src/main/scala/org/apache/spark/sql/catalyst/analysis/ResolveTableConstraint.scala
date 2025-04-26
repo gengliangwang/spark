@@ -55,7 +55,7 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
           }
           CheckInvariant(parsed, columnExtractors.toSeq, c.name(), c.predicateSql())
         }
-        CheckData(checkExprs, plan)
+        CheckData(checkExprs.toSeq, plan)
       }
   }
 }

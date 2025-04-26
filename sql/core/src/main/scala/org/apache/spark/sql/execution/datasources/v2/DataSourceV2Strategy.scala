@@ -573,6 +573,9 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
     case c: Call =>
       ExplainOnlySparkPlan(c) :: Nil
 
+    case c: CheckData =>
+      CheckDataExec(planLater(c.child), c.conditions) :: Nil
+
     case _ => Nil
   }
 }
