@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.execution.command.v2
 
+import org.apache.spark.SparkRuntimeException
 import org.apache.spark.sql.{AnalysisException, QueryTest}
 import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.catalog.constraints.Check
@@ -219,13 +220,18 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
   }
 
   test("Check constraint violation on table insert") {
-    withNamespaceAndTable("ns", "tbl") { t =>
+    withNamespaceAndTable("ns", "tbl", nonPartitionCatalog) { t =>
       sql(s"CREATE TABLE $t (id INT, CONSTRAINT positive_id CHECK (id > 0)) $defaultUsing")
-      sql(s"INSERT INTO $t VALUES (-1)")
-      val error = intercept[Exception] {
+      val error = intercept[SparkRuntimeException] {
         sql(s"INSERT INTO $t VALUES (-1)")
       }
-      assert(error.getMessage.contains("CHECK constraint positive_id violated"))
+      checkError(
+        exception = error,
+        condition = "CHECK_CONSTRAINT_VIOLATION",
+        sqlState = "23001",
+        parameters =
+          Map("constraintName" -> "positive_id", "expression" -> "id > 0", "values" -> " - id : -1")
+      )
     }
   }
 }

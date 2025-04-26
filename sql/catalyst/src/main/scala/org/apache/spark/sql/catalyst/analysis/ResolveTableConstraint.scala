@@ -31,7 +31,8 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
   override def apply(plan: LogicalPlan): LogicalPlan = plan.resolveOperatorsWithPruning(
     _.containsPattern(COMMAND), ruleId) {
     case v2Write: V2WriteCommand
-      if v2Write.table.resolved && v2Write.query.resolved && v2Write.outputResolved =>
+      if v2Write.table.resolved && v2Write.query.resolved &&
+        !v2Write.query.isInstanceOf[CheckData] &&v2Write.outputResolved =>
       val checks: Array[Check] = v2Write.table match {
         case r: DataSourceV2Relation if r.table.constraints().nonEmpty =>
           r.table.constraints().collect {
@@ -40,8 +41,8 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
         case _ => Array.empty
       }
 
-      if (checks.isEmpty) {
-        plan
+      val planWithCheckData = if (checks.isEmpty) {
+        v2Write.query
       } else {
         val checkExprs = checks.map { c =>
           val parsed =
@@ -55,7 +56,8 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
           }
           CheckInvariant(parsed, columnExtractors.toSeq, c.name(), c.predicateSql())
         }
-        CheckData(checkExprs.toSeq, plan)
+        CheckData(checkExprs.toSeq, v2Write.query)
       }
+      v2Write.withNewQuery(planWithCheckData)
   }
 }
