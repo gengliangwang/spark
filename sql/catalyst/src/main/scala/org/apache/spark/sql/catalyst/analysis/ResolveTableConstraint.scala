@@ -32,7 +32,7 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
     _.containsPattern(COMMAND), ruleId) {
     case v2Write: V2WriteCommand
       if v2Write.table.resolved && v2Write.query.resolved && v2Write.outputResolved =>
-      val checks = v2Write.table match {
+      val checks: Array[Check] = v2Write.table match {
         case r: DataSourceV2Relation if r.table.constraints().nonEmpty =>
           r.table.constraints().collect {
             case c: Check if c.enforced() => c

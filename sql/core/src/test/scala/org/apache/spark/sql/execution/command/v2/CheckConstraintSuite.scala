@@ -217,4 +217,15 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
       }
     }
   }
+
+  test("Check constraint violation on table insert") {
+    withNamespaceAndTable("ns", "tbl") { t =>
+      sql(s"CREATE TABLE $t (id INT, CONSTRAINT positive_id CHECK (id > 0)) $defaultUsing")
+      sql(s"INSERT INTO $t VALUES (-1)")
+      val error = intercept[Exception] {
+        sql(s"INSERT INTO $t VALUES (-1)")
+      }
+      assert(error.getMessage.contains("CHECK constraint positive_id violated"))
+    }
+  }
 }
