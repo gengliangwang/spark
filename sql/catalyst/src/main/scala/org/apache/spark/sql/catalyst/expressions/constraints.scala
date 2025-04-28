@@ -270,7 +270,8 @@ case class ForeignKeyConstraint(
  *
  * @param child The fully resolved expression to be evaluated to check the constraint.
  * @param columnExtractors Extractors for each referenced column. Used to generate readable errors.
- * @param constraint The original constraint definition.
+ * @param constraintName The name of the constraint.
+ * @param predicateSql The SQL representation of the constraint.
  */
 case class CheckInvariant(
     child: Expression,
@@ -330,7 +331,7 @@ case class CheckInvariant(
     val elementValue = child.genCode(ctx)
     val colListName = ctx.freshName("colList")
     val valListName = ctx.freshName("valList")
-    code"""${elementValue.code}
+    val ret = code"""${elementValue.code}
           |
           |if (${elementValue.isNull} || ${elementValue.value} == false) {
           |  ${generateColumnValuesCode(colListName, valListName, ctx)}
@@ -338,6 +339,7 @@ case class CheckInvariant(
           |     "$constraintName", "$predicateSql", $colListName, $valListName);
           |}
      """.stripMargin
+    ret
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {

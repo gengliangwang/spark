@@ -48,16 +48,27 @@ class ResolveTableConstraint(val catalogManager: CatalogManager) extends Rule[Lo
           val parsed =
             catalogManager.v1SessionCatalog.parser.parseExpression(c.predicateSql())
           val columnExtractors = mutable.Map[String, Expression]()
-          parsed.foreachUp {
-            case u: UnresolvedAttribute =>
-              columnExtractors(u.name) = u
-
-            case _ =>
-          }
+          buildColumnExtractors(parsed, columnExtractors)
           CheckInvariant(parsed, columnExtractors.toSeq, c.name(), c.predicateSql())
         }
         CheckData(checkExprs.toSeq, v2Write.query)
       }
       v2Write.withNewQuery(planWithCheckData)
+  }
+
+  private def buildColumnExtractors(
+      expr: Expression,
+      columnExtractors: mutable.Map[String, Expression]): Unit = {
+    expr match {
+      case u: UnresolvedExtractValue =>
+        // When extracting a value from a Map or Array type, we display only the specific extracted
+        // value rather than the entire Map or Array structure for clarity and readability.
+        columnExtractors(u.sql) = u
+      case u: UnresolvedAttribute =>
+        columnExtractors(u.name) = u
+
+      case other =>
+        other.children.foreach(buildColumnExtractors(_, columnExtractors))
+    }
   }
 }

@@ -219,7 +219,7 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
     }
   }
 
-  test("Check constraint violation on table insert") {
+  test("Check constraint violation on table insert - top level column") {
     withNamespaceAndTable("ns", "tbl", nonPartitionCatalog) { t =>
       sql(s"CREATE TABLE $t (id INT, CONSTRAINT positive_id CHECK (id > 0)) $defaultUsing")
       val error = intercept[SparkRuntimeException] {
@@ -231,6 +231,70 @@ class CheckConstraintSuite extends QueryTest with CommandSuiteBase with DDLComma
         sqlState = "23001",
         parameters =
           Map("constraintName" -> "positive_id", "expression" -> "id > 0", "values" -> " - id : -1")
+      )
+    }
+  }
+
+  test("Check constraint violation on table insert - nested column") {
+    withNamespaceAndTable("ns", "tbl", nonPartitionCatalog) { t =>
+      sql(s"CREATE TABLE $t (id INT," +
+        s" s STRUCT<num INT, str STRING> CONSTRAINT positive_num CHECK (s.num > 0)) $defaultUsing")
+
+      val error = intercept[SparkRuntimeException] {
+        sql(s"INSERT INTO $t VALUES (1, struct(-1, 'test'))")
+      }
+      checkError(
+        exception = error,
+        condition = "CHECK_CONSTRAINT_VIOLATION",
+        sqlState = "23001",
+        parameters = Map(
+          "constraintName" -> "positive_num",
+          "expression" -> "s.num > 0",
+          "values" -> " - s.num : -1"
+        )
+      )
+    }
+  }
+
+  test("Check constraint violation on table insert - map type column") {
+    withNamespaceAndTable("ns", "tbl", nonPartitionCatalog) { t =>
+      sql(s"CREATE TABLE $t (id INT," +
+        s" m MAP<STRING, INT> CONSTRAINT positive_num CHECK (m['a'] > 0)) $defaultUsing")
+
+      val error = intercept[SparkRuntimeException] {
+        sql(s"INSERT INTO $t VALUES (1, map('a', -1))")
+      }
+      checkError(
+        exception = error,
+        condition = "CHECK_CONSTRAINT_VIOLATION",
+        sqlState = "23001",
+        parameters = Map(
+          "constraintName" -> "positive_num",
+          "expression" -> "m['a'] > 0",
+          "values" -> " - m['a'] : -1"
+        )
+      )
+    }
+  }
+
+  test("Check constraint violation on table insert - array type column") {
+    withNamespaceAndTable("ns", "tbl", nonPartitionCatalog) { t =>
+      sql(s"CREATE TABLE $t (id INT," +
+        s" a ARRAY<INT>, CONSTRAINT positive_array CHECK (a[1] > 0)) $defaultUsing")
+
+      val error = intercept[SparkRuntimeException] {
+        sql(s"INSERT INTO $t VALUES (1, array(1, -2, 3))")
+      }
+
+      checkError(
+        exception = error,
+        condition = "CHECK_CONSTRAINT_VIOLATION",
+        sqlState = "23001",
+        parameters = Map(
+          "constraintName" -> "positive_array",
+          "expression" -> "a[1] > 0",
+          "values" -> " - a[1] : -2"
+        )
       )
     }
   }
