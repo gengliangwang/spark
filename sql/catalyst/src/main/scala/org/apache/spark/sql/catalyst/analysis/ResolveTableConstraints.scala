@@ -21,15 +21,13 @@ import scala.collection.mutable
 import org.apache.spark.sql.catalyst.expressions.{And, CheckInvariant, Expression, V2ExpressionUtils}
 import org.apache.spark.sql.catalyst.plans.logical.{Filter, LogicalPlan, V2WriteCommand}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.catalyst.trees.TreePattern.COMMAND
 import org.apache.spark.sql.connector.catalog.CatalogManager
 import org.apache.spark.sql.connector.catalog.constraints.Check
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 
 class ResolveTableConstraints(val catalogManager: CatalogManager) extends Rule[LogicalPlan] {
 
-  override def apply(plan: LogicalPlan): LogicalPlan = plan.resolveOperatorsWithPruning(
-    _.containsPattern(COMMAND), ruleId) {
+  override def apply(plan: LogicalPlan): LogicalPlan = plan.resolveOperators {
     case v2Write: V2WriteCommand
       if v2Write.table.resolved && v2Write.query.resolved &&
         !containsCheckInvariant(v2Write.query) && v2Write.outputResolved =>

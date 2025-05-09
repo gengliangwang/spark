@@ -456,7 +456,10 @@ class Analyzer(override val catalogManager: CatalogManager) extends RuleExecutor
       RewriteUpdateTable,
       RewriteMergeIntoTable,
       // Ensures columns of an output table are correctly resolved from the data in a logical plan.
-      ResolveOutputRelation),
+      ResolveOutputRelation,
+      // Validates DML operations against table constraints to ensure data consistency.
+      new ResolveTableConstraints(catalogManager)
+    ),
     Batch("Subquery", Once,
       UpdateOuterReferences),
     Batch("Cleanup", fixedPoint,
