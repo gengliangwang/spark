@@ -34,6 +34,15 @@ import org.apache.spark.util.ArrayImplicits._
 
 /**
  * Physical plan node for scanning a batch of data from a data source v2.
+ *
+ * @param output the output attributes of this scan
+ * @param scan the DSv2 Scan
+ * @param runtimeFilters runtime filters to apply
+ * @param ordering if set, the ordering provided by the scan
+ * @param table the table being scanned
+ * @param spjParams storage partition join parameters
+ * @param cdfInfo optional CDF info; when present with a batchType, determines which
+ *                batch method to call (toAddedRecordsBatch or toRemovedRecordsBatch)
  */
 case class BatchScanExec(
     output: Seq[AttributeReference],
@@ -41,10 +50,24 @@ case class BatchScanExec(
     runtimeFilters: Seq[Expression],
     ordering: Option[Seq[SortOrder]] = None,
     @transient table: Table,
-    spjParams: StoragePartitionJoinParams = StoragePartitionJoinParams()
+    spjParams: StoragePartitionJoinParams = StoragePartitionJoinParams(),
+    cdfInfo: Option[CDFInfo] = None
   ) extends DataSourceV2ScanExecBase with KeyGroupedPartitionedScan[InputPartition] {
 
-  @transient lazy val batch: Batch = if (scan == null) null else scan.toBatch
+  @transient lazy val batch: Batch = {
+    if (scan == null) {
+      null
+    } else {
+      cdfInfo.flatMap(_.batchType) match {
+        case Some(CDFAddedBatch) =>
+          scan.asInstanceOf[SupportsChangeDataFeed].toAddedRecordsBatch()
+        case Some(CDFRemovedBatch) =>
+          scan.asInstanceOf[SupportsChangeDataFeed].toRemovedRecordsBatch()
+        case None =>
+          scan.toBatch
+      }
+    }
+  }
 
   // TODO: unify the equal/hashCode implementation for all data source v2 query plans.
   override def equals(other: Any): Boolean = other match {
@@ -74,8 +97,16 @@ case class BatchScanExec(
       val filterableScan = scan.asInstanceOf[SupportsRuntimeV2Filtering]
       filterableScan.filter(dataSourceFilters.toArray)
 
-      // call toBatch again to get filtered partitions
-      val newPartitions = scan.toBatch.planInputPartitions()
+      // call the appropriate batch method again to get filtered partitions
+      val filteredBatch = cdfInfo.flatMap(_.batchType) match {
+        case Some(CDFAddedBatch) =>
+          scan.asInstanceOf[SupportsChangeDataFeed].toAddedRecordsBatch()
+        case Some(CDFRemovedBatch) =>
+          scan.asInstanceOf[SupportsChangeDataFeed].toRemovedRecordsBatch()
+        case None =>
+          scan.toBatch
+      }
+      val newPartitions = filteredBatch.planInputPartitions()
 
       originalPartitioning match {
         case p: KeyGroupedPartitioning =>
@@ -158,11 +189,16 @@ case class BatchScanExec(
   override def simpleString(maxFields: Int): String = {
     val truncatedOutputString = truncatedString(output, "[", ", ", "]", maxFields)
     val runtimeFiltersString = s"RuntimeFilters: ${runtimeFilters.mkString("[", ",", "]")}"
-    val result = s"$nodeName$truncatedOutputString ${scan.description()} $runtimeFiltersString"
+    val cdfString = cdfInfo.map(info => s" $info").getOrElse("")
+    val result = s"$nodeName$truncatedOutputString ${scan.description()}$cdfString $runtimeFiltersString"
     redact(result)
   }
 
   override def nodeName: String = {
-    s"BatchScan ${table.name()}".trim
+    val cdfSuffix = cdfInfo.flatMap(_.batchType).map {
+      case CDFAddedBatch => " [CDF Added]"
+      case CDFRemovedBatch => " [CDF Removed]"
+    }.getOrElse("")
+    s"BatchScan ${table.name()}$cdfSuffix".trim
   }
 }

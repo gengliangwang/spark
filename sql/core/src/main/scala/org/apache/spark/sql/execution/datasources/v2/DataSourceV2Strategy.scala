@@ -162,7 +162,8 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
       }
       val batchExec = BatchScanExec(relation.output, relation.scan, runtimeFilters,
         relation.ordering, relation.relation.table,
-        StoragePartitionJoinParams(relation.keyGroupedPartitioning))
+        StoragePartitionJoinParams(relation.keyGroupedPartitioning),
+        relation.relation.cdfInfo)
       DataSourceV2Strategy.withProjectAndFilter(
         project, postScanFilters, batchExec, !batchExec.supportsColumnar) :: Nil
 
