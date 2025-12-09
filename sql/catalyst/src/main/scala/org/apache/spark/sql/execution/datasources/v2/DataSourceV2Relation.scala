@@ -97,6 +97,17 @@ abstract class DataSourceV2RelationBase(
 
 /**
  * A specialization of [[DataSourceV2RelationBase]] that supports batch scan.
+ *
+ * @param table  The table that this relation represents.
+ * @param output The output attributes of this relation.
+ * @param catalog catalogPlugin for the table. None if no catalog is specified.
+ * @param identifier The identifier for the table. None if no identifier is defined.
+ * @param options The options for this table operation.
+ * @param timeTravelSpec The time travel specification for reading historical data.
+ * @param cdfInfo The Change Data Feed info for CDF reads. When present, this relation
+ *                represents a CDF read. The cdfInfo.batchType indicates whether this
+ *                relation should scan added records (via toAddedRecordsBatch) or
+ *                removed records (via toRemovedRecordsBatch).
  */
 case class DataSourceV2Relation(
     table: Table,
@@ -104,11 +115,26 @@ case class DataSourceV2Relation(
     catalog: Option[CatalogPlugin],
     identifier: Option[Identifier],
     options: CaseInsensitiveStringMap,
-    timeTravelSpec: Option[TimeTravelSpec] = None)
+    timeTravelSpec: Option[TimeTravelSpec] = None,
+    cdfInfo: Option[CDFInfo] = None)
   extends DataSourceV2RelationBase(table, output, catalog, identifier, options, timeTravelSpec)
   with ExposesMetadataColumns {
 
   import DataSourceV2Implicits._
+
+  /** Returns true if this is a CDF read. */
+  def isCDFRead: Boolean = cdfInfo.isDefined
+
+  override def simpleString(maxFields: Int): String = {
+    val outputString = truncatedString(output, "[", ", ", "]", maxFields)
+    val suffix = (timeTravelSpec, cdfInfo) match {
+      case (Some(spec), Some(cdf)) => s"$name $spec $cdf"
+      case (Some(spec), None) => s"$name $spec"
+      case (None, Some(cdf)) => s"$name $cdf"
+      case _ => name
+    }
+    s"RelationV2$outputString $suffix"
+  }
 
   override def newInstance(): DataSourceV2Relation = {
     copy(output = output.map(_.newInstance()))
@@ -269,7 +295,7 @@ object ExtractV2Table {
 object ExtractV2CatalogAndIdentifier {
   def unapply(relation: DataSourceV2Relation): Option[(TableCatalog, Identifier)] = {
     relation match {
-      case DataSourceV2Relation(_, _, Some(catalog), Some(identifier), _, _) =>
+      case DataSourceV2Relation(_, _, Some(catalog), Some(identifier), _, _, _) =>
         Some((catalog.asTableCatalog, identifier))
       case _ =>
         None
