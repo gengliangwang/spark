@@ -17,9 +17,13 @@
 
 package org.apache.spark.sql.connector.read;
 
+import org.apache.spark.SparkUnsupportedOperationException;
 import org.apache.spark.annotation.Evolving;
 import org.apache.spark.sql.connector.expressions.NamedReference;
+import org.apache.spark.sql.connector.read.streaming.MicroBatchStream;
 import org.apache.spark.sql.types.StructType;
+
+import java.util.Map;
 
 /**
  * A mix-in interface for {@link Scan}. Data sources can implement this interface to
@@ -106,6 +110,56 @@ public interface SupportsChangeDataFeed extends Scan {
    */
   default StructType cdfReadSchema() {
     return readSchema();
+  }
+
+  // ==================== Streaming CDF Methods ====================
+
+  /**
+   * Returns a {@link MicroBatchStream} for streaming added/new records in micro-batch mode.
+   * <p>
+   * This stream provides newly added rows, including:
+   * <ul>
+   *   <li>Inserted rows</li>
+   *   <li>Updated rows (the new version after update)</li>
+   * </ul>
+   * <p>
+   * The output should include all data columns, partition columns, and CDF metadata
+   * columns (_commit_version, _commit_timestamp).
+   * <p>
+   * By default, this method throws an exception. Data sources must override this method
+   * to provide streaming CDF support.
+   *
+   * @param checkpointLocation a path to Hadoop FS scratch space for failure recovery
+   * @return a {@link MicroBatchStream} for streaming added records
+   * @throws UnsupportedOperationException if streaming CDF is not supported
+   */
+  default MicroBatchStream toAddedRecordsMicroBatchStream(String checkpointLocation) {
+    throw new SparkUnsupportedOperationException(
+      "_LEGACY_ERROR_TEMP_3148", Map.of("description", description()));
+  }
+
+  /**
+   * Returns a {@link MicroBatchStream} for streaming removed/deleted records in micro-batch mode.
+   * <p>
+   * This stream provides removed rows, including:
+   * <ul>
+   *   <li>Deleted rows</li>
+   *   <li>Updated rows (the old version before update)</li>
+   * </ul>
+   * <p>
+   * The output should include all data columns, partition columns, and CDF metadata
+   * columns (_commit_version, _commit_timestamp).
+   * <p>
+   * By default, this method throws an exception. Data sources must override this method
+   * to provide streaming CDF support.
+   *
+   * @param checkpointLocation a path to Hadoop FS scratch space for failure recovery
+   * @return a {@link MicroBatchStream} for streaming removed records
+   * @throws UnsupportedOperationException if streaming CDF is not supported
+   */
+  default MicroBatchStream toRemovedRecordsMicroBatchStream(String checkpointLocation) {
+    throw new SparkUnsupportedOperationException(
+      "_LEGACY_ERROR_TEMP_3148", Map.of("description", description()));
   }
 }
 

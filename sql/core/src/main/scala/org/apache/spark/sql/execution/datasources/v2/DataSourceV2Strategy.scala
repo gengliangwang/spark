@@ -172,7 +172,8 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
 
       val microBatchStream = r.stream.asInstanceOf[MicroBatchStream]
       val scanExec = MicroBatchScanExec(
-        r.output, r.scan, microBatchStream, r.startOffset.get, r.endOffset.get)
+        r.output, r.scan, microBatchStream, r.startOffset.get, r.endOffset.get,
+        keyGroupedPartitioning = None, ordering = None, cdfInfo = r.relation.cdfInfo)
 
       // Add a Project here to make sure we produce unsafe rows.
       DataSourceV2Strategy.withProjectAndFilter(p, f, scanExec, !scanExec.supportsColumnar) :: Nil

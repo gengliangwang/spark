@@ -40,7 +40,8 @@ import org.apache.spark.sql.connector.read.streaming.{MicroBatchStream, Offset =
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution.{SparkPlan, SQLExecution}
 import org.apache.spark.sql.execution.datasources.LogicalRelation
-import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, RealTimeStreamScanExec, StreamingDataSourceV2Relation, StreamingDataSourceV2ScanRelation, StreamWriterCommitProgress, WriteToDataSourceV2Exec}
+import org.apache.spark.sql.connector.read.SupportsChangeDataFeed
+import org.apache.spark.sql.execution.datasources.v2.{CDFAddedBatch, CDFRemovedBatch, DataSourceV2Relation, RealTimeStreamScanExec, StreamingDataSourceV2Relation, StreamingDataSourceV2ScanRelation, StreamWriterCommitProgress, WriteToDataSourceV2Exec}
 import org.apache.spark.sql.execution.streaming.{AvailableNowTrigger, Offset, OneTimeTrigger, ProcessingTimeTrigger, RealTimeModeAllowlist, RealTimeTrigger, Sink, Source, StreamingQueryPlanTraverseHelper}
 import org.apache.spark.sql.execution.streaming.checkpointing.{CheckpointFileManager, CommitMetadata, OffsetSeqBase, OffsetSeqMetadata}
 import org.apache.spark.sql.execution.streaming.operators.stateful.{StatefulOperatorStateInfo, StatefulOpStateStoreCheckpointInfo, StateStoreWriter}
@@ -210,7 +211,19 @@ class MicroBatchExecution(
               log"${MDC(LogKeys.STREAMING_DATA_SOURCE_DESCRIPTION, dsStr)}")
             // TODO: operator pushdown.
             val scan = table.newScanBuilder(options).build()
-            val stream = scan.toMicroBatchStream(metadataPath)
+            // Check if this is a CDF streaming read and get the appropriate stream
+            val cdfInfo = s match {
+              case r: StreamingDataSourceV2Relation => r.cdfInfo
+              case _ => None
+            }
+            val stream = cdfInfo.flatMap(_.batchType) match {
+              case Some(CDFAddedBatch) =>
+                scan.asInstanceOf[SupportsChangeDataFeed].toAddedRecordsMicroBatchStream(metadataPath)
+              case Some(CDFRemovedBatch) =>
+                scan.asInstanceOf[SupportsChangeDataFeed].toRemovedRecordsMicroBatchStream(metadataPath)
+              case None =>
+                scan.toMicroBatchStream(metadataPath)
+            }
             val relation = StreamingDataSourceV2Relation(
                 table,
                 output,
@@ -221,7 +234,8 @@ class MicroBatchExecution(
                 trigger match {
                   case RealTimeTrigger(duration) => Some(duration)
                   case _ => None
-                }
+                },
+                cdfInfo
               )
             StreamingDataSourceV2ScanRelation(relation, scan, output, stream)
           })

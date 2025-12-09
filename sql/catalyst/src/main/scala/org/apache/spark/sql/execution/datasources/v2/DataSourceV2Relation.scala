@@ -225,6 +225,17 @@ case class DataSourceV2ScanRelation(
  * A specialization of [[DataSourceV2RelationBase]] that supports streaming scan.
  * It will be transformed to [[StreamingDataSourceV2ScanRelation]] during the planning phase of
  * [[MicrobatchExecution]].
+ *
+ * @param table The table that this relation represents.
+ * @param output The output attributes of this relation.
+ * @param catalog catalogPlugin for the table. None if no catalog is specified.
+ * @param identifier The identifier for the table. None if no identifier is defined.
+ * @param options The options for this table operation.
+ * @param metadataPath The path for streaming metadata.
+ * @param realTimeModeDuration Duration for real-time mode, if enabled.
+ * @param cdfInfo The Change Data Feed info for CDF streaming reads. When present with a batchType,
+ *                determines which stream method to call (toAddedRecordsMicroBatchStream or
+ *                toRemovedRecordsMicroBatchStream).
  */
 case class StreamingDataSourceV2Relation(
     table: Table,
@@ -233,10 +244,14 @@ case class StreamingDataSourceV2Relation(
     identifier: Option[Identifier],
     options: CaseInsensitiveStringMap,
     metadataPath: String,
-    realTimeModeDuration: Option[Long] = None)
+    realTimeModeDuration: Option[Long] = None,
+    cdfInfo: Option[CDFInfo] = None)
   extends DataSourceV2RelationBase(table, output, catalog, identifier, options) {
 
   override def isStreaming: Boolean = true
+
+  /** Returns true if this is a CDF streaming read. */
+  def isCDFRead: Boolean = cdfInfo.isDefined
 
   override def newInstance(): StreamingDataSourceV2Relation = {
     copy(output = output.map(_.newInstance()))
