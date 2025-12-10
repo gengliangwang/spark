@@ -218,9 +218,9 @@ class MicroBatchExecution(
             }
             val stream = cdfInfo.flatMap(_.batchType) match {
               case Some(CDFAddedBatch) =>
-                scan.asInstanceOf[SupportsChangeDataFeed].toAddedRecordsMicroBatchStream(metadataPath)
+                scan.asInstanceOf[SupportsChangeDataFeed].additionChangesMicroBatchStream(metadataPath)
               case Some(CDFRemovedBatch) =>
-                scan.asInstanceOf[SupportsChangeDataFeed].toRemovedRecordsMicroBatchStream(metadataPath)
+                scan.asInstanceOf[SupportsChangeDataFeed].deletionChangesMicroBatchStream(metadataPath)
               case None =>
                 scan.toMicroBatchStream(metadataPath)
             }

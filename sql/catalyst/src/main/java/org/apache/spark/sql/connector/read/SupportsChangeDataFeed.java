@@ -53,9 +53,9 @@ import java.util.Map;
 public interface SupportsChangeDataFeed extends Scan {
 
   /**
-   * Returns the physical representation for scanning added/new records.
+   * Returns the physical representation for scanning addition changes.
    * <p>
-   * This batch scans files that contain newly added rows, including:
+   * This batch scans files that contain rows being added to the table state, including:
    * <ul>
    *   <li>Inserted rows</li>
    *   <li>Updated rows (the new version after update)</li>
@@ -64,14 +64,14 @@ public interface SupportsChangeDataFeed extends Scan {
    * The output should include all data columns, partition columns, and CDF metadata
    * columns (_commit_version, _commit_timestamp).
    *
-   * @return a {@link Batch} for scanning added records
+   * @return a {@link Batch} for scanning addition changes
    */
-  Batch toAddedRecordsBatch();
+  Batch additionChangesBatch();
 
   /**
-   * Returns the physical representation for scanning removed/deleted records.
+   * Returns the physical representation for scanning deletion changes.
    * <p>
-   * This batch scans files that contain removed rows, including:
+   * This batch scans files that contain rows being removed from the table state, including:
    * <ul>
    *   <li>Deleted rows</li>
    *   <li>Updated rows (the old version before update)</li>
@@ -80,9 +80,9 @@ public interface SupportsChangeDataFeed extends Scan {
    * The output should include all data columns, partition columns, and CDF metadata
    * columns (_commit_version, _commit_timestamp).
    *
-   * @return a {@link Batch} for scanning removed records
+   * @return a {@link Batch} for scanning deletion changes
    */
-  Batch toRemovedRecordsBatch();
+  Batch deletionChangesBatch();
 
   /**
    * Returns the row identifier columns used to join added and removed records.
@@ -115,9 +115,9 @@ public interface SupportsChangeDataFeed extends Scan {
   // ==================== Streaming CDF Methods ====================
 
   /**
-   * Returns a {@link MicroBatchStream} for streaming added/new records in micro-batch mode.
+   * Returns a {@link MicroBatchStream} for streaming addition changes in micro-batch mode.
    * <p>
-   * This stream provides newly added rows, including:
+   * This stream provides rows being added to the table state, including:
    * <ul>
    *   <li>Inserted rows</li>
    *   <li>Updated rows (the new version after update)</li>
@@ -130,18 +130,18 @@ public interface SupportsChangeDataFeed extends Scan {
    * to provide streaming CDF support.
    *
    * @param checkpointLocation a path to Hadoop FS scratch space for failure recovery
-   * @return a {@link MicroBatchStream} for streaming added records
+   * @return a {@link MicroBatchStream} for streaming addition changes
    * @throws UnsupportedOperationException if streaming CDF is not supported
    */
-  default MicroBatchStream toAddedRecordsMicroBatchStream(String checkpointLocation) {
+  default MicroBatchStream additionChangesMicroBatchStream(String checkpointLocation) {
     throw new SparkUnsupportedOperationException(
       "_LEGACY_ERROR_TEMP_3148", Map.of("description", description()));
   }
 
   /**
-   * Returns a {@link MicroBatchStream} for streaming removed/deleted records in micro-batch mode.
+   * Returns a {@link MicroBatchStream} for streaming deletion changes in micro-batch mode.
    * <p>
-   * This stream provides removed rows, including:
+   * This stream provides rows being removed from the table state, including:
    * <ul>
    *   <li>Deleted rows</li>
    *   <li>Updated rows (the old version before update)</li>
@@ -154,10 +154,10 @@ public interface SupportsChangeDataFeed extends Scan {
    * to provide streaming CDF support.
    *
    * @param checkpointLocation a path to Hadoop FS scratch space for failure recovery
-   * @return a {@link MicroBatchStream} for streaming removed records
+   * @return a {@link MicroBatchStream} for streaming deletion changes
    * @throws UnsupportedOperationException if streaming CDF is not supported
    */
-  default MicroBatchStream toRemovedRecordsMicroBatchStream(String checkpointLocation) {
+  default MicroBatchStream deletionChangesMicroBatchStream(String checkpointLocation) {
     throw new SparkUnsupportedOperationException(
       "_LEGACY_ERROR_TEMP_3148", Map.of("description", description()));
   }

@@ -60,9 +60,9 @@ case class BatchScanExec(
     } else {
       cdfInfo.flatMap(_.batchType) match {
         case Some(CDFAddedBatch) =>
-          scan.asInstanceOf[SupportsChangeDataFeed].toAddedRecordsBatch()
+          scan.asInstanceOf[SupportsChangeDataFeed].additionChangesBatch()
         case Some(CDFRemovedBatch) =>
-          scan.asInstanceOf[SupportsChangeDataFeed].toRemovedRecordsBatch()
+          scan.asInstanceOf[SupportsChangeDataFeed].deletionChangesBatch()
         case None =>
           scan.toBatch
       }
@@ -100,9 +100,9 @@ case class BatchScanExec(
       // call the appropriate batch method again to get filtered partitions
       val filteredBatch = cdfInfo.flatMap(_.batchType) match {
         case Some(CDFAddedBatch) =>
-          scan.asInstanceOf[SupportsChangeDataFeed].toAddedRecordsBatch()
+          scan.asInstanceOf[SupportsChangeDataFeed].additionChangesBatch()
         case Some(CDFRemovedBatch) =>
-          scan.asInstanceOf[SupportsChangeDataFeed].toRemovedRecordsBatch()
+          scan.asInstanceOf[SupportsChangeDataFeed].deletionChangesBatch()
         case None =>
           scan.toBatch
       }
