@@ -5,7 +5,7 @@
 **State**: Proposal  
 **Authors**: Gengliang Wang  
 **Created**: December 2024  
-**Target Version**: Apache Spark 4.1.0
+**Target Version**: Apache Spark 4.2.0
 
 ---
 
@@ -348,7 +348,20 @@ This section defines the SQL syntax and DataFrame API for querying Change Data F
 
 ### SQL Syntax
 
+The SQL syntax is inspired by the **ANSI SQL:2011 temporal table** syntax `FOR SYSTEM_TIME`, which provides a standardized way to query historical data. The SQL:2011 standard defines the following temporal query patterns:
+
+```sql
+-- ANSI SQL:2011 Temporal Table Syntax
+SELECT * FROM table_name FOR SYSTEM_TIME AS OF '2025-01-01 00:00:00'
+SELECT * FROM table_name FOR SYSTEM_TIME BETWEEN '2025-01-01' AND '2025-01-15'
+SELECT * FROM table_name FOR SYSTEM_TIME FROM '2025-01-01' TO '2025-01-15'
+```
+
+While `FOR SYSTEM_TIME` is designed for time-travel queries (point-in-time snapshots), our `FOR CHANGES` clause extends this pattern to support Change Data Feed queries that return row-level change events instead of snapshots.
+
 #### Grammar
+
+**Primary Syntax:**
 
 ```sql
 SELECT <columns>
@@ -357,6 +370,26 @@ FROM <table_name>
   OPTIONS (netChanges = {true | false}, computeUpdates = {true | false})
   IDENTIFY BY (<col1> [, <col2>, ...])
 ```
+
+**Alternative Syntax (shorthand):**
+
+```sql
+-- Version-based changes
+SELECT <columns>
+FROM <table_name>
+  FOR VERSION FROM <start_version> TO {<end_version> | LATEST}
+  OPTIONS (netChanges = {true | false}, computeUpdates = {true | false})
+  IDENTIFY BY (<col1> [, <col2>, ...])
+
+-- Timestamp-based changes
+SELECT <columns>
+FROM <table_name>
+  FOR TIMESTAMP FROM '<start_ts>' TO {'<end_ts>' | CURRENT}
+  OPTIONS (netChanges = {true | false}, computeUpdates = {true | false})
+  IDENTIFY BY (<col1> [, <col2>, ...])
+```
+
+The alternative syntax provides a more concise form when using a single range type (version or timestamp).
 
 #### Clause Descriptions
 
@@ -597,6 +630,12 @@ Full Outer Join on row ID columns:
 ## References
 
 - [SPARK-XXXXX] Change Data Feed Data Source V2 API (JIRA - TBD)
-- [Delta Lake CDF Documentation](https://docs.delta.io/latest/delta-change-data-feed.html)
 - [Data Source V2 API](https://spark.apache.org/docs/latest/sql-data-sources.html)
+
+### Change Data Feed Implementations
+
+- [Delta Lake Change Data Feed](https://delta-docs-incubator.netlify.app/delta-change-data-feed/) - Delta Lake's CDF implementation using `readChangeFeed` option
+- [Apache Iceberg CDC](https://www.dremio.com/blog/cdc-with-apache-iceberg/) - Change Data Capture patterns with Apache Iceberg
+- [Snowflake CHANGES Clause](https://docs.snowflake.com/en/sql-reference/constructs/changes) - Snowflake's SQL syntax for querying change data
+- [Oracle Flashback Query](https://docs.oracle.com/cd/B12037_01/appdev.101/b10795/adfns_fl.htm) - Oracle's flashback technology for historical data queries
 
