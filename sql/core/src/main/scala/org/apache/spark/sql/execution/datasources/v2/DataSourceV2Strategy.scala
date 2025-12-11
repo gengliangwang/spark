@@ -162,7 +162,8 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
       }
       val batchExec = BatchScanExec(relation.output, relation.scan, runtimeFilters,
         relation.ordering, relation.relation.table,
-        StoragePartitionJoinParams(relation.keyGroupedPartitioning))
+        StoragePartitionJoinParams(relation.keyGroupedPartitioning),
+        relation.relation.cdfInfo)
       DataSourceV2Strategy.withProjectAndFilter(
         project, postScanFilters, batchExec, !batchExec.supportsColumnar) :: Nil
 
@@ -171,7 +172,8 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
 
       val microBatchStream = r.stream.asInstanceOf[MicroBatchStream]
       val scanExec = MicroBatchScanExec(
-        r.output, r.scan, microBatchStream, r.startOffset.get, r.endOffset.get)
+        r.output, r.scan, microBatchStream, r.startOffset.get, r.endOffset.get,
+        keyGroupedPartitioning = None, ordering = None, cdfInfo = r.relation.cdfInfo)
 
       // Add a Project here to make sure we produce unsafe rows.
       DataSourceV2Strategy.withProjectAndFilter(p, f, scanExec, !scanExec.supportsColumnar) :: Nil

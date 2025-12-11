@@ -106,5 +106,26 @@ public enum TableCapability {
    * write modes, like {@link #TRUNCATE}, and {@link #OVERWRITE_BY_FILTER}, but cannot support
    * {@link #OVERWRITE_DYNAMIC}.
    */
-  V1_BATCH_WRITE
+  V1_BATCH_WRITE,
+
+  /**
+   * Signals that the table supports Change Data Feed (CDF) reads in batch execution mode.
+   * <p>
+   * Tables that return this capability must provide a {@link org.apache.spark.sql.connector.read.Scan}
+   * that implements {@link org.apache.spark.sql.connector.read.SupportsChangeDataFeed}.
+   * CDF allows reading row-level changes (inserts, updates, deletes) between versions or timestamps.
+   */
+  CDF_READ,
+
+  /**
+   * Signals that the table supports Change Data Feed (CDF) reads in micro-batch streaming mode.
+   * <p>
+   * Tables that return this capability must provide a {@link org.apache.spark.sql.connector.read.Scan}
+   * that implements {@link org.apache.spark.sql.connector.read.SupportsChangeDataFeed} and supports
+   * the streaming methods {@code toAddedRecordsMicroBatchStream} and
+   * {@code toRemovedRecordsMicroBatchStream}.
+   * <p>
+   * This enables streaming queries that continuously process row-level changes from the table.
+   */
+  CDF_MICRO_BATCH_READ
 }
