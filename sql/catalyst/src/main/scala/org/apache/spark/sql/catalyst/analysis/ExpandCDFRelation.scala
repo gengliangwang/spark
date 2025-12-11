@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.catalyst.analysis
 
-import org.apache.spark.sql.catalyst.expressions.{Alias, And, AttributeReference, CaseWhen, Coalesce, EqualNullSafe, IsNotNull, Literal, Not}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, AttributeReference, CaseWhen, Coalesce, EqualNullSafe, GreaterThan, IsNotNull, Literal, Not}
 import org.apache.spark.sql.catalyst.plans.FullOuter
 import org.apache.spark.sql.catalyst.plans.logical.{Join, JoinHint, LogicalPlan, Project}
 import org.apache.spark.sql.catalyst.rules.Rule
@@ -33,10 +33,16 @@ import org.apache.spark.sql.types.StringType
  *    - addedRelation: has cdfInfo.batchType = CDFAddedBatch
  *    - removedRelation: has cdfInfo.batchType = CDFRemovedBatch
  * 2. Perform a full outer join on the row ID columns
- * 3. Add a projection to compute the _change_type column based on join results:
- *    - INSERT: row exists only in added batch (removed side is null)
- *    - DELETE: row exists only in removed batch (added side is null)
- *    - UPDATE: row exists in both batches
+ * 3. Add a projection to compute the _change_type column based on join results and commit versions:
+ *    - INSERT: row exists only in added batch (removed side is null), OR
+ *              row exists in both batches but added version > removed version
+ *    - DELETE: row exists only in removed batch (added side is null), OR
+ *              row exists in both batches but removed version > added version
+ *    - UPDATE_POSTIMAGE: row exists in both batches with equal versions
+ *
+ * The version comparison ensures that when a row has changes across multiple versions,
+ * the final change type reflects the latest operation (e.g., a row inserted at version 1
+ * and deleted at version 4 should be reported as deleted).
  */
 object ExpandCDFRelation extends Rule[LogicalPlan] {
 
@@ -82,14 +88,39 @@ object ExpandCDFRelation extends Rule[LogicalPlan] {
     // Build the change type expression:
     // - If removed is null -> INSERT
     // - If added is null -> DELETE
-    // - Otherwise -> UPDATE_POSTIMAGE (we output the post-image for updates)
+    // - If both exist, compare commit versions to determine final change type:
+    //   - If added version > removed version -> INSERT (latest change was an add)
+    //   - If removed version > added version -> DELETE (latest change was a removal)
+    //   - If versions are equal -> UPDATE_POSTIMAGE
     val addedNotNull = IsNotNull(addedRowIds.head)
     val removedNotNull = IsNotNull(removedRowIds.head)
 
-    val changeTypeExpr = CaseWhen(Seq(
-      (And(addedNotNull, Not(removedNotNull)), Literal(CDFChangeType.INSERT)),
-      (And(Not(addedNotNull), removedNotNull), Literal(CDFChangeType.DELETE))
-    ), Some(Literal(CDFChangeType.UPDATE_POSTIMAGE)))
+    // Get commit version columns for comparison
+    val addedVersionCol = addedRelation.output.find(_.name == CDFInfo.COMMIT_VERSION_COLUMN)
+    val removedVersionCol = removedRelation.output.find(_.name == CDFInfo.COMMIT_VERSION_COLUMN)
+
+    val changeTypeExpr = (addedVersionCol, removedVersionCol) match {
+      case (Some(addedVer), Some(removedVer)) =>
+        // Both version columns exist - compare versions to determine change type
+        CaseWhen(Seq(
+          // Only added exists -> INSERT
+          (And(addedNotNull, Not(removedNotNull)), Literal(CDFChangeType.INSERT)),
+          // Only removed exists -> DELETE
+          (And(Not(addedNotNull), removedNotNull), Literal(CDFChangeType.DELETE)),
+          // Both exist: added version > removed version -> INSERT (latest was add)
+          (And(And(addedNotNull, removedNotNull), GreaterThan(addedVer, removedVer)),
+            Literal(CDFChangeType.INSERT)),
+          // Both exist: removed version > added version -> DELETE (latest was removal)
+          (And(And(addedNotNull, removedNotNull), GreaterThan(removedVer, addedVer)),
+            Literal(CDFChangeType.DELETE))
+        ), Some(Literal(CDFChangeType.UPDATE_POSTIMAGE)))
+      case _ =>
+        // Fallback: no version columns, use original logic
+        CaseWhen(Seq(
+          (And(addedNotNull, Not(removedNotNull)), Literal(CDFChangeType.INSERT)),
+          (And(Not(addedNotNull), removedNotNull), Literal(CDFChangeType.DELETE))
+        ), Some(Literal(CDFChangeType.UPDATE_POSTIMAGE)))
+    }
 
     // Build the output projection
     // For data columns, coalesce added and removed (prefer added for insert/update)
