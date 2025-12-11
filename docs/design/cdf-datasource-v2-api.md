@@ -348,59 +348,57 @@ This section defines the SQL syntax and DataFrame API for querying Change Data F
 
 ### SQL Syntax
 
-The SQL syntax is inspired by the **ANSI SQL:2011 temporal table** syntax `FOR SYSTEM_TIME`, which provides a standardized way to query historical data. The SQL:2011 standard defines the following temporal query patterns:
+The SQL syntax extends Spark's existing **time travel syntax** to support Change Data Feed queries. Spark's time travel uses `FOR SYSTEM_VERSION/VERSION AS OF` and `FOR SYSTEM_TIME/TIMESTAMP AS OF` for point-in-time snapshots:
 
 ```sql
--- ANSI SQL:2011 Temporal Table Syntax
+-- Spark Time Travel Syntax (existing)
+SELECT * FROM table_name VERSION AS OF 5
+SELECT * FROM table_name FOR SYSTEM_VERSION AS OF 5
+SELECT * FROM table_name TIMESTAMP AS OF '2025-01-01 00:00:00'
 SELECT * FROM table_name FOR SYSTEM_TIME AS OF '2025-01-01 00:00:00'
-SELECT * FROM table_name FOR SYSTEM_TIME BETWEEN '2025-01-01' AND '2025-01-15'
-SELECT * FROM table_name FOR SYSTEM_TIME FROM '2025-01-01' TO '2025-01-15'
 ```
 
-While `FOR SYSTEM_TIME` is designed for time-travel queries (point-in-time snapshots), our `FOR CHANGES` clause extends this pattern to support Change Data Feed queries that return row-level change events instead of snapshots.
+The CDF syntax extends this pattern by replacing `AS OF` with `FROM ... TO` to query a **range of changes** instead of a point-in-time snapshot.
 
 #### Grammar
 
-**Primary Syntax:**
-
-```sql
-SELECT <columns>
-FROM <table_name>
-  FOR CHANGES FROM {VERSION <n> | TIMESTAMP '<ts>'} TO {VERSION <n> | TIMESTAMP '<ts>' | CURRENT | LATEST}
-  OPTIONS (netChanges = {true | false}, computeUpdates = {true | false})
-  IDENTIFY BY (<col1> [, <col2>, ...])
-```
-
-**Alternative Syntax (shorthand):**
+**Proposed Syntax:**
 
 ```sql
 -- Version-based changes
 SELECT <columns>
 FROM <table_name>
-  FOR VERSION FROM <start_version> TO {<end_version> | LATEST}
+  {FOR SYSTEM_VERSION | VERSION} FROM <start_version> TO {<end_version> | LATEST}
   OPTIONS (netChanges = {true | false}, computeUpdates = {true | false})
   IDENTIFY BY (<col1> [, <col2>, ...])
 
 -- Timestamp-based changes
 SELECT <columns>
 FROM <table_name>
-  FOR TIMESTAMP FROM '<start_ts>' TO {'<end_ts>' | CURRENT}
+  {FOR SYSTEM_TIME | TIMESTAMP} FROM '<start_ts>' TO {'<end_ts>' | CURRENT}
   OPTIONS (netChanges = {true | false}, computeUpdates = {true | false})
   IDENTIFY BY (<col1> [, <col2>, ...])
 ```
 
-The alternative syntax provides a more concise form when using a single range type (version or timestamp).
+This syntax is consistent with Spark's existing temporal clause grammar:
+
+```
+temporalClause
+    : ((FOR SYSTEM_VERSION) | VERSION) AS OF version=(INTEGER_VALUE | STRING)
+    | ((FOR SYSTEM_TIME) | TIMESTAMP) AS OF timestamp=STRING
+    ;
+```
+
+The CDF extension replaces `AS OF <value>` with `FROM <start> TO <end>` to specify a range.
 
 #### Clause Descriptions
 
 | Clause | Required | Description |
 |--------|----------|-------------|
-| `FOR CHANGES` | Yes | Indicates a Change Data Feed query |
-| `FROM VERSION <n>` | Yes (or `FROM TIMESTAMP`) | Starting version number (inclusive) |
-| `FROM TIMESTAMP '<ts>'` | Yes (or `FROM VERSION`) | Starting timestamp (inclusive) |
-| `TO VERSION <n>` | No | Ending version number (inclusive) |
-| `TO TIMESTAMP '<ts>'` | No | Ending timestamp (inclusive) |
-| `TO CURRENT` / `TO LATEST` | No | Query changes up to the current/latest version |
+| `VERSION FROM <n>` or `FOR SYSTEM_VERSION FROM <n>` | Yes (or timestamp variant) | Starting version number (inclusive) |
+| `TIMESTAMP FROM '<ts>'` or `FOR SYSTEM_TIME FROM '<ts>'` | Yes (or version variant) | Starting timestamp (inclusive) |
+| `TO <n>` / `TO '<ts>'` | Yes | Ending version/timestamp (inclusive) |
+| `TO CURRENT` / `TO LATEST` | Alternative to specific end | Query changes up to the current/latest version |
 | `OPTIONS (...)` | No | Additional options for CDF behavior |
 | `IDENTIFY BY (...)` | No | Columns used to identify rows for change detection |
 
@@ -418,30 +416,40 @@ The alternative syntax provides a more concise form when using a single range ty
 ```sql
 -- Basic: Read all changes between version 1 and 10
 SELECT * FROM my_table
-  FOR CHANGES FROM VERSION 1 TO VERSION 10
+  VERSION FROM 1 TO 10
+  IDENTIFY BY (id)
+
+-- Using FOR SYSTEM_VERSION (equivalent to VERSION)
+SELECT * FROM my_table
+  FOR SYSTEM_VERSION FROM 1 TO 10
   IDENTIFY BY (id)
 
 -- Read changes from a timestamp to the current version
 SELECT * FROM my_table
-  FOR CHANGES FROM TIMESTAMP '2025-01-01 00:00:00' TO CURRENT
+  TIMESTAMP FROM '2025-01-01 00:00:00' TO CURRENT
+  IDENTIFY BY (id)
+
+-- Using FOR SYSTEM_TIME (equivalent to TIMESTAMP)
+SELECT * FROM my_table
+  FOR SYSTEM_TIME FROM '2025-01-01 00:00:00' TO CURRENT
   IDENTIFY BY (id)
 
 -- Read changes with net changes only (collapse intermediate states)
 SELECT * FROM my_table
-  FOR CHANGES FROM VERSION 1 TO VERSION 10
+  VERSION FROM 1 TO 10
   OPTIONS (netChanges = true)
   IDENTIFY BY (id)
 
 -- Read changes with update detection enabled
 SELECT * FROM my_table
-  FOR CHANGES FROM VERSION 5 TO LATEST
+  VERSION FROM 5 TO LATEST
   OPTIONS (computeUpdates = true)
   IDENTIFY BY (id, name)
 
 -- Full example with all options
 SELECT id, name, value, _change_type, _commit_version
 FROM orders
-  FOR CHANGES FROM TIMESTAMP '2025-01-01' TO TIMESTAMP '2025-01-15'
+  TIMESTAMP FROM '2025-01-01' TO '2025-01-15'
   OPTIONS (netChanges = true, computeUpdates = true)
   IDENTIFY BY (order_id)
 WHERE _change_type IN ('insert', 'update_postimage')
@@ -533,12 +541,12 @@ val streamingChanges = spark.readStream
 ```sql
 -- Read changes between versions 1 and 10
 SELECT * FROM myTable
-  FOR CHANGES FROM VERSION 1 TO VERSION 10
+  VERSION FROM 1 TO 10
   IDENTIFY BY (id)
 
 -- Read changes since a specific timestamp to latest
 SELECT * FROM myTable
-  FOR CHANGES FROM TIMESTAMP '2024-01-01 00:00:00' TO LATEST
+  TIMESTAMP FROM '2024-01-01 00:00:00' TO LATEST
   IDENTIFY BY (id)
 ```
 
