@@ -1377,4 +1377,81 @@ class CatalogSuite extends SparkFunSuite {
     catalog.alterTable(testIdent, TableChange.addConstraint(constraints.apply(0), "3"))
     assert(catalog.loadTable(testIdent).version() == "4")
   }
+
+  test("loadChangelog - catalog without SUPPORT_CHANGELOG throws UnsupportedOperationException") {
+    val catalog = newCatalog()
+    assert(!catalog.capabilities().contains(TableCatalogCapability.SUPPORT_CHANGELOG))
+
+    val changelogInfo = ChangelogInfo.of(
+      new ChangelogRange.VersionRange("1", java.util.Optional.of("10"), true, true))
+
+    intercept[UnsupportedOperationException] {
+      catalog.loadChangelog(testIdent, changelogInfo)
+    }
+  }
+
+  test("loadChangelog - catalog with SUPPORT_CHANGELOG returns Changelog") {
+    val catalog = newChangelogCatalog()
+    catalog.createTable(testIdent, columns, emptyTrans, emptyProps)
+
+    val changelogInfo = ChangelogInfo.of(
+      new ChangelogRange.VersionRange("1", java.util.Optional.of("10"), true, true))
+
+    val changelog = catalog.loadChangelog(testIdent, changelogInfo)
+    assert(changelog != null)
+    assert(changelog.name().contains(testIdent.name()))
+    assert(changelog.columns().length == InMemoryChangelog.schema.fields.length)
+    assert(changelog.containsCarryoverRows())
+    assert(!changelog.containsIntermediateChanges())
+    assert(changelog.representsUpdateAsDeleteAndInsert())
+  }
+
+  test("loadChangelog - non-existent table throws NoSuchTableException") {
+    val catalog = newChangelogCatalog()
+
+    val changelogInfo = ChangelogInfo.of(new ChangelogRange.Unbounded())
+    val nonExistent = Identifier.of(testNs, "non_existent_table")
+
+    intercept[NoSuchTableException] {
+      catalog.loadChangelog(nonExistent, changelogInfo)
+    }
+  }
+
+  test("loadChangelog - ChangelogTable wraps the Changelog correctly") {
+    val catalog = newChangelogCatalog()
+    catalog.createTable(testIdent, columns, emptyTrans, emptyProps)
+
+    val changelogInfo = ChangelogInfo.of(
+      new ChangelogRange.TimestampRange(
+        100L, java.util.Optional.of(200L), true, true))
+
+    val changelog = catalog.loadChangelog(testIdent, changelogInfo)
+    val table = new ChangelogTable(changelog, changelogInfo)
+
+    assert(table.name() == changelog.name())
+    assert(table.columns().sameElements(changelog.columns()))
+    assert(table.capabilities().contains(TableCapability.BATCH_READ))
+    assert(table.capabilities().contains(TableCapability.MICRO_BATCH_READ))
+    assert(table.changelog() eq changelog)
+    assert(table.changelogInfo() eq changelogInfo)
+  }
+
+  test("loadChangelog - ScanBuilder is delegated to Changelog") {
+    val catalog = newChangelogCatalog()
+    catalog.createTable(testIdent, columns, emptyTrans, emptyProps)
+
+    val changelogInfo = ChangelogInfo.of(new ChangelogRange.Unbounded())
+    val changelog = catalog.loadChangelog(testIdent, changelogInfo)
+    val table = new ChangelogTable(changelog, changelogInfo)
+
+    val scanBuilder = table.newScanBuilder(CaseInsensitiveStringMap.empty())
+    assert(scanBuilder != null)
+    assert(scanBuilder.isInstanceOf[InMemoryChangelogScanBuilder])
+  }
+
+  private def newChangelogCatalog(): InMemoryChangelogCatalog = {
+    val catalog = new InMemoryChangelogCatalog
+    catalog.initialize("test_changelog", CaseInsensitiveStringMap.empty())
+    catalog
+  }
 }
