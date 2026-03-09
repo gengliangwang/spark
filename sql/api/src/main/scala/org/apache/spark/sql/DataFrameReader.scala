@@ -498,6 +498,38 @@ abstract class DataFrameReader {
   def table(tableName: String): DataFrame
 
   /**
+   * Returns row-level changes (CDC) from the specified table as a `DataFrame`.
+   *
+   * The table's catalog must support CDC via the `SUPPORT_CHANGELOG` capability and the
+   * `Changelog` connector interface.
+   *
+   * CDC query parameters are specified via `.option()` before calling this method:
+   *
+   * {{{
+   *   // Get changes between two versions (both inclusive by default)
+   *   spark.read.option("startingVersion", 10).option("endingVersion", 20).changes("my_table")
+   *
+   *   // Get changes using a timestamp range
+   *   spark.read
+   *     .option("startingTimestamp", "2026-01-01")
+   *     .option("endingTimestamp", "2026-02-01")
+   *     .changes("my_table")
+   *
+   *   // Exclude the starting bound
+   *   spark.read
+   *     .option("startingVersion", 10)
+   *     .option("startingBoundInclusive", false)
+   *     .option("endingVersion", 20)
+   *     .changes("my_table")
+   * }}}
+   *
+   * @param tableName
+   *   is either a qualified or unqualified name that designates a table.
+   * @since 4.2.0
+   */
+  def changes(tableName: String): DataFrame
+
+  /**
    * Loads text files and returns a `DataFrame` whose schema starts with a string column named
    * "value", and followed by partitioned columns if there are any. See the documentation on the
    * other overloaded `text()` method for more details.

@@ -233,6 +233,29 @@ abstract class DataStreamReader {
   def table(tableName: String): DataFrame
 
   /**
+   * Returns a streaming `DataFrame` that continuously reads row-level changes (CDC) from the
+   * specified table.
+   *
+   * The table's catalog must support CDC via the `SUPPORT_CHANGELOG` capability and the
+   * `Changelog` connector interface.
+   *
+   * CDC query parameters are specified via `.option()` before calling this method:
+   *
+   * {{{
+   *   // Streaming: continuously process changes starting from version 10
+   *   spark.readStream.option("startingVersion", 10).changes("my_table")
+   *
+   *   // Streaming: let the connector determine the starting point
+   *   spark.readStream.changes("my_table")
+   * }}}
+   *
+   * @param tableName
+   *   is either a qualified or unqualified name that designates a table.
+   * @since 4.2.0
+   */
+  def changes(tableName: String): DataFrame
+
+  /**
    * Loads text files and returns a `DataFrame` whose schema starts with a string column named
    * "value", and followed by partitioned columns if there are any. The text files must be encoded
    * as UTF-8.

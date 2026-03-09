@@ -118,6 +118,20 @@ final class DataStreamReader private[sql] (sparkSession: SparkSession)
     }
   }
 
+  /** @inheritdoc */
+  def changes(tableName: String): DataFrame = {
+    require(tableName != null, "The table name can't be null")
+    val opts = new java.util.HashMap[String, String](sourceBuilder.getOptionsMap)
+    opts.put("__changelog_read__", "true")
+    sparkSession.newDataFrame { builder =>
+      builder.getReadBuilder
+        .setIsStreaming(true)
+        .getNamedTableBuilder
+        .setUnparsedIdentifier(tableName)
+        .putAllOptions(opts)
+    }
+  }
+
   override protected def assertNoSpecifiedSchema(operation: String): Unit = {
     if (sourceBuilder.hasSchema) {
       throw DataTypeErrors.userSpecifiedSchemaUnsupportedError(operation)

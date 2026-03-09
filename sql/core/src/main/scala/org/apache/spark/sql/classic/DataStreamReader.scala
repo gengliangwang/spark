@@ -117,6 +117,20 @@ final class DataStreamReader private[sql](sparkSession: SparkSession)
     Dataset.ofRows(sparkSession, plan)
   }
 
+  /** @inheritdoc */
+  def changes(tableName: String): DataFrame = {
+    require(tableName != null, "The table name can't be null")
+    val identifier = sparkSession.sessionState.sqlParser.parseMultipartIdentifier(tableName)
+    val opts = new java.util.HashMap[String, String](extraOptions.toMap.asJava)
+    opts.put(UnresolvedRelation.CHANGELOG_READ, "true")
+    val unresolved = UnresolvedRelation(
+      identifier,
+      new CaseInsensitiveStringMap(opts),
+      isStreaming = true)
+    val plan = NamedStreamingRelation.withUserProvidedName(unresolved, userProvidedSourceName)
+    Dataset.ofRows(sparkSession, plan)
+  }
+
   override protected def assertNoSpecifiedSchema(operation: String): Unit = {
     if (userSpecifiedSchema.nonEmpty) {
       throw QueryCompilationErrors.userSpecifiedSchemaUnsupportedError(operation)

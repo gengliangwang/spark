@@ -155,6 +155,9 @@ object UnresolvedRelation {
   // writing data to this relation.
   val REQUIRED_WRITE_PRIVILEGES = "__required_write_privileges__"
 
+  // An internal option to indicate this relation should be resolved as a changelog (CDC) read.
+  val CHANGELOG_READ = "__changelog_read__"
+
   def apply(
       tableIdentifier: TableIdentifier,
       extraOptions: CaseInsensitiveStringMap,

@@ -356,4 +356,29 @@ public interface TableCatalog extends CatalogPlugin {
    */
   void renameTable(Identifier oldIdent, Identifier newIdent)
       throws NoSuchTableException, TableAlreadyExistsException;
+
+  /**
+   * Load a {@link Changelog} for the table identified by {@code ident}, scoped to the
+   * range and options described by {@code changelogInfo}.
+   * <p>
+   * This method is called during analysis when a CDC query targets this catalog.
+   * Spark checks that the catalog's {@link #capabilities()} set contains
+   * {@link TableCatalogCapability#SUPPORT_CHANGELOG} before calling this method.
+   * <p>
+   * The returned {@link Changelog} is wrapped in an internal {@link ChangelogTable}
+   * by Spark's analyzer.
+   *
+   * @param ident a table identifier
+   * @param changelogInfo CDC query parameters (range, deduplication mode, etc.)
+   * @return a Changelog for reading row-level changes
+   * @throws NoSuchTableException If the table doesn't exist
+   * @throws UnsupportedOperationException If CDC is not supported (default)
+   *
+   * @since 4.2.0
+   */
+  default Changelog loadChangelog(Identifier ident, ChangelogInfo changelogInfo)
+      throws NoSuchTableException {
+    throw new UnsupportedOperationException(
+        name() + " does not support Change Data Capture (CDC) queries");
+  }
 }

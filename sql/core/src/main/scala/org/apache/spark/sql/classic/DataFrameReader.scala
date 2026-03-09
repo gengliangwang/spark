@@ -321,6 +321,17 @@ class DataFrameReader private[sql](sparkSession: SparkSession)
   }
 
   /** @inheritdoc */
+  def changes(tableName: String): DataFrame = {
+    assertNoSpecifiedSchema("changes")
+    val multipartIdentifier =
+      sparkSession.sessionState.sqlParser.parseMultipartIdentifier(tableName)
+    val opts = new java.util.HashMap[String, String](extraOptions.toMap.asJava)
+    opts.put(UnresolvedRelation.CHANGELOG_READ, "true")
+    Dataset.ofRows(sparkSession, UnresolvedRelation(multipartIdentifier,
+      new CaseInsensitiveStringMap(opts)))
+  }
+
+  /** @inheritdoc */
   override def text(path: String): DataFrame = super.text(path)
 
   /** @inheritdoc */
