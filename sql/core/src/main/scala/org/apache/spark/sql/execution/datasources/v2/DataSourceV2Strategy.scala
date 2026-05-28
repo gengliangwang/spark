@@ -39,6 +39,7 @@ import org.apache.spark.sql.connector.catalog.TableChange
 import org.apache.spark.sql.connector.catalog.index.SupportsIndex
 import org.apache.spark.sql.connector.expressions.{FieldReference, LiteralValue}
 import org.apache.spark.sql.connector.expressions.filter.{And => V2And, Not => V2Not, Or => V2Or, Predicate}
+import org.apache.spark.sql.connector.files.FileWrite
 import org.apache.spark.sql.connector.read.LocalScan
 import org.apache.spark.sql.connector.read.streaming.{ContinuousStream, MicroBatchStream, SupportsRealTimeMode}
 import org.apache.spark.sql.connector.write.{V1Write, Write}
@@ -505,6 +506,9 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
             v1, v2Write.getClass.getName, classOf[V1Write].getName)
       }
 
+    case AppendData(r: DataSourceV2Relation, query, _, _, _, Some(w: FileWrite), _) =>
+      AppendFilesExec(planLater(query), refreshCache(r), w, r.name) :: Nil
+
     case AppendData(r: DataSourceV2Relation, query, _, _, _, Some(write), _) =>
       AppendDataExec(planLater(query), refreshCache(r), write, r.name) :: Nil
 
@@ -523,8 +527,16 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
       }
 
     case OverwriteByExpression(
+        r: DataSourceV2Relation, deleteExpr, query, _, _, _, Some(w: FileWrite), _) =>
+      OverwriteFilesByExpressionExec(
+        planLater(query), refreshCache(r), w, deleteExpr, r.name) :: Nil
+
+    case OverwriteByExpression(
         r: DataSourceV2Relation, _, query, _, _, _, Some(write), _) =>
       OverwriteByExpressionExec(planLater(query), refreshCache(r), write, r.name) :: Nil
+
+    case OverwritePartitionsDynamic(r: DataSourceV2Relation, query, _, _, _, Some(w: FileWrite)) =>
+      OverwritePartitionFilesDynamicExec(planLater(query), refreshCache(r), w, r.name) :: Nil
 
     case OverwritePartitionsDynamic(r: DataSourceV2Relation, query, _, _, _, Some(write)) =>
       OverwritePartitionsDynamicExec(planLater(query), refreshCache(r), write, r.name) :: Nil
