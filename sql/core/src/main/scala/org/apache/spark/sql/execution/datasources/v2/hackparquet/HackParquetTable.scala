@@ -22,10 +22,12 @@ import java.util
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.util.SchemaUtils
 import org.apache.spark.sql.connector.catalog.TableCapability
 import org.apache.spark.sql.connector.catalog.TableCapability._
 import org.apache.spark.sql.connector.write.{LogicalWriteInfo, WriteBuilder}
-import org.apache.spark.sql.execution.datasources.FileFormat
+import org.apache.spark.sql.errors.QueryCompilationErrors
+import org.apache.spark.sql.execution.datasources.{FileFormat, PartitioningUtils}
 import org.apache.spark.sql.execution.datasources.v2.parquet.ParquetTable
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -58,5 +60,31 @@ class HackParquetTable(
     caps.add(OVERWRITE_BY_FILTER)
     caps.add(OVERWRITE_DYNAMIC)
     caps
+  }
+
+  // When a user-specified schema is supplied (the write path through DataFrameWriter passes the
+  // DataFrame's schema here), short-circuit FileTable's schema lookup — that path always lists
+  // files via `fileIndex` and fails for writes to non-existent output paths (SPARK-28396). Reads
+  // (no user schema) fall through to the FileTable computation, reproduced inline because Scala
+  // does not allow `super.lazyVal`.
+  override lazy val schema: StructType = userSpecifiedSchema match {
+    case Some(s) => s.asNullable
+    case None =>
+      val caseSensitive = sparkSession.sessionState.conf.caseSensitiveAnalysis
+      SchemaUtils.checkSchemaColumnNameDuplication(dataSchema, caseSensitive)
+      dataSchema.foreach { field =>
+        if (!supportsDataType(field.dataType)) {
+          throw QueryCompilationErrors.dataTypeUnsupportedByDataSourceError(formatName, field)
+        }
+      }
+      val partitionSchema = fileIndex.partitionSchema
+      SchemaUtils.checkSchemaColumnNameDuplication(partitionSchema, caseSensitive)
+      val partitionNameSet: Set[String] =
+        partitionSchema.fields.map(PartitioningUtils.getColName(_, caseSensitive)).toSet
+      val fields = dataSchema.fields.filterNot { field =>
+        val colName = PartitioningUtils.getColName(field, caseSensitive)
+        partitionNameSet.contains(colName)
+      } ++ partitionSchema.fields
+      StructType(fields)
   }
 }

@@ -231,8 +231,17 @@ final class DataFrameWriter[T] private[sql](ds: Dataset[T]) extends sql.DataFram
                 ignoreIfExists = createMode == SaveMode.Ignore)
             case _: TableProvider =>
               if (getTable.supports(BATCH_WRITE)) {
-                throw QueryCompilationErrors.writeWithSaveModeUnsupportedBySourceError(
-                  source, createMode.name())
+                if (provider.isInstanceOf[SupportsNewFileWritePath]) {
+                  // The new FileWrite path doesn't natively support ErrorIfExists/Ignore (which
+                  // the V2 file write path has never handled either — see SPARK-28396). Fall
+                  // back to the V1 write path for these modes; Append/Overwrite still flow
+                  // through V2.
+                  assertSchemaEvolutionNotEnabledForV1Write()
+                  saveToV1SourceCommand(path)
+                } else {
+                  throw QueryCompilationErrors.writeWithSaveModeUnsupportedBySourceError(
+                    source, createMode.name())
+                }
               } else {
                 // Streaming also uses the data source V2 API. So it may be that the data source
                 // implements v2, but has no v2 implementation for batch writes. In that case, we

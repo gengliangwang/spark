@@ -21,7 +21,7 @@ import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.connector.read.{Batch, Scan}
 
 /**
- * An internal DSv2 [[Scan]] for connectors that delegate execution to Spark's V1 file scan path.
+ * An internal DSv2 `Scan` for connectors that delegate execution to Spark's V1 file scan path.
  *
  * Instead of producing DSv2 `Batch` / `MicroBatchStream` directly, a `FileScan` produces a
  * [[FileBatch]] or [[FileMicroBatchStream]] that enumerates `FileSet`s. A planner strategy

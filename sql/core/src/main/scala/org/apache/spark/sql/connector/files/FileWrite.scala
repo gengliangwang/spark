@@ -25,7 +25,7 @@ import org.apache.spark.sql.connector.write.{BatchWrite, Write}
 import org.apache.spark.sql.execution.datasources.{FileFormat, WriteJobStatsTracker}
 
 /**
- * An internal DSv2 [[Write]] for connectors that delegate execution to Spark's V1 file write
+ * An internal DSv2 `Write` for connectors that delegate execution to Spark's V1 file write
  * path (`FileFormatWriter.write`). The new batch/streaming write exec nodes route this kind of
  * `Write` through `FileFormatWriter`, so connectors don't have to implement DSv2 `BatchWrite` /
  * `StreamingWrite` and per-task writer factories themselves.
