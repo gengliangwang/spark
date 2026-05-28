@@ -34,6 +34,7 @@ import org.apache.spark.sql.connector.catalog._
 import org.apache.spark.sql.connector.catalog.TableCapability._
 import org.apache.spark.sql.connector.catalog.TableWritePrivilege._
 import org.apache.spark.sql.connector.expressions.{ClusterByTransform, FieldReference, IdentityTransform, Transform}
+import org.apache.spark.sql.connector.files.SupportsNewFileWritePath
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.execution.QueryExecution
 import org.apache.spark.sql.execution.command.{DDLUtils, SaveAsV1TableCommand}
@@ -617,6 +618,10 @@ final class DataFrameWriter[T] private[sql](ds: Dataset[T]) extends sql.DataFram
 
   private def lookupV2Provider(): Option[TableProvider] = {
     DataSource.lookupDataSourceV2(source, df.sparkSession.sessionState.conf) match {
+      // Providers that mix in SupportsNewFileWritePath route writes through the new FileWrite
+      // exec nodes (FileFormatWriter), so the legacy SPARK-28396 V2 write-path skip does not
+      // apply to them.
+      case Some(p: SupportsNewFileWritePath) => Some(p)
       // TODO(SPARK-28396): File source v2 write path is currently broken.
       case Some(_: FileDataSourceV2) => None
       case other => other

@@ -21,33 +21,42 @@ import java.util
 
 import scala.jdk.CollectionConverters._
 
-import org.apache.spark.sql.connector.catalog.{SupportsWrite, TableCapability}
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.connector.catalog.TableCapability
+import org.apache.spark.sql.connector.catalog.TableCapability._
 import org.apache.spark.sql.connector.write.{LogicalWriteInfo, WriteBuilder}
+import org.apache.spark.sql.execution.datasources.FileFormat
+import org.apache.spark.sql.execution.datasources.v2.parquet.ParquetTable
 import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 /**
- * A minimal writeable Parquet [[org.apache.spark.sql.connector.catalog.Table]] backing the
- * hackparquet DSv2 connector. Returns a [[HackParquetWriteBuilder]] that ultimately yields a
- * [[org.apache.spark.sql.connector.files.FileWrite]] for the new exec-node path.
+ * Extends [[ParquetTable]] so reads (and all the FileTable/FileScanBuilder machinery) keep
+ * working, while overriding the write path to use the new [[org.apache.spark.sql.connector.files
+ * .FileWrite]] flow.
  */
 class HackParquetTable(
-    private val tableSchema: StructType,
-    private val options: Map[String, String])
-  extends SupportsWrite {
-
-  override def name(): String = "hackparquet"
-
-  override def schema(): StructType = tableSchema
-
-  override def capabilities(): util.Set[TableCapability] = {
-    Set[TableCapability](
-      TableCapability.BATCH_WRITE,
-      TableCapability.OVERWRITE_BY_FILTER,
-      TableCapability.OVERWRITE_DYNAMIC,
-      TableCapability.TRUNCATE).asJava
-  }
+    tableName: String,
+    sparkSession: SparkSession,
+    options: CaseInsensitiveStringMap,
+    paths: Seq[String],
+    userSpecifiedSchema: Option[StructType],
+    fallbackFileFormat: Class[_ <: FileFormat])
+  extends ParquetTable(
+    tableName, sparkSession, options, paths, userSpecifiedSchema, fallbackFileFormat) {
 
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
-    new HackParquetWriteBuilder(options, info)
+    val outputPath = paths.headOption.getOrElse(
+      throw new IllegalArgumentException("hackparquet write requires at least one path"))
+    val tableOptions = options.asCaseSensitiveMap().asScala.toMap + ("path" -> outputPath)
+    new HackParquetWriteBuilder(tableOptions, info)
+  }
+
+  override def capabilities(): util.Set[TableCapability] = {
+    val caps = util.EnumSet.copyOf(super.capabilities())
+    caps.add(TRUNCATE)
+    caps.add(OVERWRITE_BY_FILTER)
+    caps.add(OVERWRITE_DYNAMIC)
+    caps
   }
 }

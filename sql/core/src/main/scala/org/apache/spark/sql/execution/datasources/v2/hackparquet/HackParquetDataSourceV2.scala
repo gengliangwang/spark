@@ -17,36 +17,43 @@
 
 package org.apache.spark.sql.execution.datasources.v2.hackparquet
 
-import java.util.Map
-
-import org.apache.spark.sql.connector.catalog.{Table, TableProvider}
-import org.apache.spark.sql.connector.expressions.Transform
-import org.apache.spark.sql.sources.DataSourceRegister
+import org.apache.spark.sql.connector.catalog.Table
+import org.apache.spark.sql.connector.files.SupportsNewFileWritePath
+import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
+import org.apache.spark.sql.execution.datasources.v2._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
-import scala.jdk.CollectionConverters._
-
 /**
- * A minimal Parquet DSv2 connector that exercises the new [[org.apache.spark.sql.connector.files
- * .FileWrite]] write path. Sits alongside the existing `parquet` DSv2 connector under a separate
- * short name so the hackathon prototype does not perturb the production Parquet plumbing.
+ * The hackparquet DSv2 connector — registered as the V2 Parquet provider so the new
+ * [[org.apache.spark.sql.connector.files.FileWrite]] write path is exercised whenever
+ * `df.write.format("parquet")` resolves to V2. Reads are inherited from the existing
+ * `ParquetTable` infrastructure so round-trip tests keep working.
  *
- * Read support is intentionally omitted in this prototype — written data is verified by reading
- * back via the existing `parquet` source.
+ * Implements [[SupportsNewFileWritePath]] so `DataFrameWriter` does not skip our provider for
+ * writes (the generic file-source-V2 skip exists to avoid the broken legacy V2 write path; our
+ * write path goes through `FileFormatWriter` and is the intended fix).
  */
-class HackParquetDataSourceV2 extends TableProvider with DataSourceRegister {
+class HackParquetDataSourceV2 extends FileDataSourceV2 with SupportsNewFileWritePath {
 
-  override def shortName(): String = "hackparquet"
+  override def fallbackFileFormat: Class[_ <: FileFormat] = classOf[ParquetFileFormat]
 
-  override def supportsExternalMetadata(): Boolean = true
+  override def shortName(): String = "parquet"
 
-  override def inferSchema(options: CaseInsensitiveStringMap): StructType = new StructType()
+  override def getTable(options: CaseInsensitiveStringMap): Table = {
+    val paths = getPaths(options)
+    val tableName = getTableName(options, paths)
+    val optionsWithoutPaths = getOptionsWithoutPaths(options)
+    new HackParquetTable(
+      tableName, sparkSession, optionsWithoutPaths, paths, None, fallbackFileFormat)
+  }
 
-  override def getTable(
-      schema: StructType,
-      partitioning: Array[Transform],
-      properties: Map[String, String]): Table = {
-    new HackParquetTable(schema, properties.asScala.toMap)
+  override def getTable(options: CaseInsensitiveStringMap, schema: StructType): Table = {
+    val paths = getPaths(options)
+    val tableName = getTableName(options, paths)
+    val optionsWithoutPaths = getOptionsWithoutPaths(options)
+    new HackParquetTable(
+      tableName, sparkSession, optionsWithoutPaths, paths, Some(schema), fallbackFileFormat)
   }
 }

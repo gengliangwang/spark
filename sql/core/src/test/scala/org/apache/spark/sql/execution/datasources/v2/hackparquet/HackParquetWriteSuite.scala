@@ -55,7 +55,7 @@ class HackParquetWriteSuite extends QueryTest with SharedSparkSession {
     withTempDir { dir =>
       val path = dir.getCanonicalPath
       Seq((1, "a"), (2, "b"), (3, "c")).toDF("k", "v")
-        .write.format("hackparquet").mode("append").save(path)
+        .write.format("parquet").mode("append").save(path)
 
       checkAnswer(
         spark.read.parquet(path),
@@ -67,9 +67,9 @@ class HackParquetWriteSuite extends QueryTest with SharedSparkSession {
     withTempDir { dir =>
       val path = dir.getCanonicalPath
       Seq((1, "a"), (2, "b")).toDF("k", "v")
-        .write.format("hackparquet").mode("append").save(path)
+        .write.format("parquet").mode("append").save(path)
       Seq((10, "x")).toDF("k", "v")
-        .write.format("hackparquet").mode("overwrite").save(path)
+        .write.format("parquet").mode("overwrite").save(path)
 
       checkAnswer(spark.read.parquet(path), Seq(Row(10, "x")))
     }
@@ -79,7 +79,7 @@ class HackParquetWriteSuite extends QueryTest with SharedSparkSession {
     withTempDir { dir =>
       val qe = captureExecutedPlan {
         Seq((1, "a")).toDF("k", "v")
-          .write.format("hackparquet").mode("append").save(dir.getCanonicalPath)
+          .write.format("parquet").mode("append").save(dir.getCanonicalPath)
       }
       assert(qe.executedPlan.exists(_.isInstanceOf[AppendFilesExec]),
         s"expected AppendFilesExec in executed plan:\n${qe.executedPlan}")
@@ -90,10 +90,10 @@ class HackParquetWriteSuite extends QueryTest with SharedSparkSession {
     withTempDir { dir =>
       // Seed the directory so overwrite has something to truncate.
       Seq((1, "a")).toDF("k", "v")
-        .write.format("hackparquet").mode("append").save(dir.getCanonicalPath)
+        .write.format("parquet").mode("append").save(dir.getCanonicalPath)
       val qe = captureExecutedPlan {
         Seq((2, "b")).toDF("k", "v")
-          .write.format("hackparquet").mode("overwrite").save(dir.getCanonicalPath)
+          .write.format("parquet").mode("overwrite").save(dir.getCanonicalPath)
       }
       assert(qe.executedPlan.exists(_.isInstanceOf[OverwriteFilesByExpressionExec]),
         s"expected OverwriteFilesByExpressionExec in executed plan:\n${qe.executedPlan}")
