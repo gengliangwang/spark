@@ -274,6 +274,10 @@ class ParquetFileFormatV2Suite extends ParquetFileFormatSuite {
     super
       .sparkConf
       .set(SQLConf.USE_V1_SOURCE_LIST, "")
+      // Keep this suite on the legacy Scala parquet v2 connector (ParquetScan): it asserts
+      // on its plan shapes / pushdown internals, which the FileScan-based Java connector
+      // replaces by default.
+      .set(SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED, false)
 }
 
 /**
