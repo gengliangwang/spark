@@ -20,26 +20,28 @@ package org.apache.spark.sql.execution.datasources.v2.parquet;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.connector.read.ScanBuilder;
+import org.apache.spark.sql.connector.read.SupportsPushDownRequiredColumns;
 import org.apache.spark.sql.execution.datasources.PartitioningAwareFileIndex;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 /**
- * Scan builder for {@link ParquetFileScanTable}. Neither filters nor columns are pushed at the
- * DSv2 level: the planner re-derives partition/data filters and prunes columns when it lowers
- * the {@link ParquetFileScan} to the V1 file-source path, so partition pruning, parquet filter
- * pushdown and column pruning all happen there, exactly as on the V1 read path. The V1 lowering
- * requires the scan to keep the relation's full output (a {@code LogicalRelation} always
- * carries the full table schema; pruning lives in the Project re-planned above it), so this
- * builder intentionally does not implement {@code SupportsPushDownRequiredColumns}.
+ * Scan builder for {@link ParquetFileScanTable}. Filters are intentionally NOT pushed at the
+ * DSv2 level: the planner re-derives partition and data filters when it lowers the
+ * {@link ParquetFileScan} to the V1 file-source path, so partition pruning and parquet filter
+ * pushdown happen there, exactly as on the V1 read path. Column pruning (top-level, nested
+ * fields, and `_metadata` struct subfields) IS accepted, so the optimizer's pruned schema
+ * reaches the lowered scan; the planner re-synthesizes the full-schema V1 relation underneath
+ * and restricts the branch to the pruned output.
  */
-public class ParquetFileScanBuilder implements ScanBuilder {
+public class ParquetFileScanBuilder implements ScanBuilder, SupportsPushDownRequiredColumns {
 
   private final SparkSession session;
   private final PartitioningAwareFileIndex fileIndex;
-  private final StructType tableSchema;
   private final StructType dataSchema;
   private final CaseInsensitiveStringMap options;
+
+  private StructType requiredSchema;
 
   public ParquetFileScanBuilder(
       SparkSession session,
@@ -49,13 +51,18 @@ public class ParquetFileScanBuilder implements ScanBuilder {
       CaseInsensitiveStringMap options) {
     this.session = session;
     this.fileIndex = fileIndex;
-    this.tableSchema = tableSchema;
     this.dataSchema = dataSchema;
     this.options = options;
+    this.requiredSchema = tableSchema;
+  }
+
+  @Override
+  public void pruneColumns(StructType requiredSchema) {
+    this.requiredSchema = requiredSchema;
   }
 
   @Override
   public Scan build() {
-    return new ParquetFileScan(session, fileIndex, dataSchema, tableSchema, options);
+    return new ParquetFileScan(session, fileIndex, dataSchema, requiredSchema, options);
   }
 }

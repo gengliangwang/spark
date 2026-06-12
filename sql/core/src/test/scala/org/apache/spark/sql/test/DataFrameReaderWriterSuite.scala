@@ -1305,7 +1305,10 @@ class DataFrameReaderWriterSuite extends SharedSparkSession with BeforeAndAfter 
   }
 
   test("SPARK-32516: legacy path option behavior in load()") {
-    withSQLConf(SQLConf.LEGACY_PATH_OPTION_BEHAVIOR.key -> "true") {
+    // The legacy path-option semantics ("path" option added vs overwritten) are defined by the
+    // V1 path resolution; pin the V1 parquet read path for this legacy-conf test.
+    withSQLConf(SQLConf.LEGACY_PATH_OPTION_BEHAVIOR.key -> "true",
+        SQLConf.USE_V1_SOURCE_LIST.key -> "parquet") {
       withTempDir { dir =>
         val path = dir.getCanonicalPath
         Seq(1).toDF().write.mode("overwrite").parquet(path)

@@ -33,6 +33,7 @@ import org.apache.spark.sql.catalyst.expressions.Literal.TrueLiteral
 import org.apache.spark.sql.catalyst.planning.PhysicalOperation
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.trees.TreePattern.SCALAR_SUBQUERY
+import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.catalyst.util.{quoteIfNeeded, toPrettySQL, GeneratedColumn, IdentityColumn, ResolveDefaultColumns, ResolveTableConstraints, V2ExpressionBuilder}
 import org.apache.spark.sql.classic.SparkSession
 import org.apache.spark.sql.connector.catalog.{CatalogV2Util, Dependency, DependencyList, Identifier, StagingTableCatalog, SupportsDeleteV2, SupportsNamespaces, SupportsPartitionManagement, SupportsWrite, TableCapability, TableCatalog, TableSummary, TruncatableTable, V1Table, V1ViewInfo, ViewCatalog}
@@ -1030,7 +1031,7 @@ private[sql] object DataSourceV2Strategy extends Logging {
       throw SparkException.internalError("FileScan returned no FileSets to plan.")
     }
 
-    def buildRelation(fs: FileSet, relOutput: Seq[AttributeReference]): LogicalRelation = {
+    def buildRelation(fs: FileSet, branchOutput: Seq[AttributeReference]): LogicalRelation = {
       val partitionNames = fs.partitionColumns().iterator.flatMap(_.fieldNames()).toIndexedSeq
       val partitionSchema = StructType(partitionNames.flatMap(n => tableSchema.find(_.name == n)))
       // Pass the full table schema as `dataSchema` so `HadoopFsRelation` preserves the original
@@ -1054,9 +1055,20 @@ private[sql] object DataSourceV2Strategy extends Logging {
         bucketSpec = None,
         fileFormat = fs.format(),
         options = fs.options().asScala.toMap)(session)
+      // A V1 LogicalRelation is never partial: FileSourceStrategy resolves the relation's
+      // dataSchema and partitionSchema against its output, so the synthesized relation must
+      // expose the full table schema even when the DSv2 scan pruned columns. Reuse the branch's
+      // attribute ids for the columns the scan kept -- the re-planned project/filters bind to
+      // them, and they may carry nested-pruned struct types -- and mint fresh attributes for the
+      // pruned-away columns: nothing references them, and the branch is restricted to the scan
+      // relation's output below.
+      val attrByName = branchOutput.iterator.map(a => a.name -> a).toMap
+      val fullOutput = dataSchema.map { f =>
+        attrByName.getOrElse(f.name, DataTypeUtils.toAttribute(f))
+      }
       LogicalRelation(
         relation = hfsr,
-        output = relOutput,
+        output = fullOutput,
         catalogTable = None,
         isStreaming = false,
         stream = None)
@@ -1077,7 +1089,12 @@ private[sql] object DataSourceV2Strategy extends Logging {
         // (e.g. `__metadata`) while keeping the logical name. Carry the connector's expr id AND
         // display name so the parent plan's references resolve against this branch's output.
         case MetadataAttributeWithLogicalName(a, FileFormat.METADATA_NAME) =>
+          // The DSv2 column pruning may have pruned the metadata struct to the referenced
+          // subfields (and rewritten the plan's GetStructField ordinals accordingly), so expose
+          // the scan relation's struct type, not the relation's full one: FileSourceStrategy
+          // flattens exactly the fields present in the attribute's type.
           a.withExprId(dsv2Metadata.exprId).withName(dsv2Metadata.name)
+            .withDataType(dsv2Metadata.dataType)
       }.getOrElse {
         throw SparkException.internalError(
           "Synthesized HadoopFsRelation did not expose a _metadata column for a FileScan.")
@@ -1168,8 +1185,15 @@ private[sql] object DataSourceV2Strategy extends Logging {
       val withFilter =
         if (allBranchFilters.isEmpty) scanInput
         else Filter(allBranchFilters.reduce(And), scanInput)
-      val branchLogical: LogicalPlan =
-        if (branchProject.isEmpty) withFilter else Project(branchProject, withFilter)
+      val branchLogical: LogicalPlan = if (branchProject.nonEmpty) {
+        Project(branchProject, withFilter)
+      } else if (withFilter.output != relOutput) {
+        // The synthesized relation exposes the full table schema; restrict the branch to the
+        // (possibly pruned) DSv2 scan relation output it stands in for.
+        Project(relOutput, withFilter)
+      } else {
+        withFilter
+      }
       planBranch(branchLogical)
     }
     val result = if (branchPlans.length == 1) branchPlans.head else UnionExec(branchPlans)

@@ -22,7 +22,7 @@ import scala.collection.mutable
 import org.apache.spark.SparkException
 import org.apache.spark.internal.{Logging, LogKeys}
 import org.apache.spark.sql.AnalysisException
-import org.apache.spark.sql.catalyst.expressions.{AttributeReference, AttributeSet, DynamicPruning, DynamicPruningExpression, Expression, ExpressionSet, GetStructField, NamedExpression, PythonUDF, SchemaPruning, SubqueryExpression, V2ExpressionUtils}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, AttributeSet, DynamicPruning, DynamicPruningExpression, Expression, ExpressionSet, GetStructField, MetadataAttribute, NamedExpression, PythonUDF, SchemaPruning, SubqueryExpression, V2ExpressionUtils}
 import org.apache.spark.sql.catalyst.plans.logical.SampleMethod
 import org.apache.spark.sql.catalyst.plans.physical.{KeyedPartitioning, Partitioning}
 import org.apache.spark.sql.catalyst.types.DataTypeUtils
@@ -625,9 +625,19 @@ object PushDownUtils extends Logging {
       relation: DataSourceV2Relation): Seq[AttributeReference] = {
     val nameToAttr = Utils.toMap(relation.output.map(_.name), relation.output)
     val cleaned = CharVarcharUtils.replaceCharVarcharWithStringInSchema(schema)
-    toAttributes(cleaned).map {
+    toAttributes(cleaned).map { a =>
+      val original = nameToAttr(a.name)
       // we have to keep the attribute id during transformation
-      a => a.withExprId(nameToAttr(a.name).exprId)
+      val withId = a.withExprId(original.exprId)
+      // Rebuilding the attribute from the scan's readSchema loses the original attribute's
+      // metadata. For METADATA columns (resolved from SupportsMetadataColumns) the metadata
+      // carries the metadata-column markers that downstream planning keys on (e.g. the FileScan
+      // V1 lowering re-exposes `_metadata` and rebinds metadata filters by them), so restore it.
+      if (MetadataAttribute.isValid(original.metadata)) {
+        withId.withMetadata(original.metadata).asInstanceOf[AttributeReference]
+      } else {
+        withId
+      }
     }
   }
 }

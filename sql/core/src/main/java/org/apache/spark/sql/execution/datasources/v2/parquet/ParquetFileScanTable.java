@@ -41,6 +41,7 @@ import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.GeographyType;
 import org.apache.spark.sql.types.GeometryType;
 import org.apache.spark.sql.types.MapType;
+import org.apache.spark.sql.types.NullType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.types.TimestampLTZNanosType;
@@ -125,7 +126,13 @@ public class ParquetFileScanTable extends FileTable implements SupportsMetadataC
   // synthesized V1 relation's own `_metadata`.
   @Override
   public MetadataColumn[] metadataColumns() {
-    DataType metadataType = new ParquetFileFormat().createFileMetadataCol().dataType();
+    org.apache.spark.sql.catalyst.expressions.AttributeReference v1MetadataCol =
+      new ParquetFileFormat().createFileMetadataCol();
+    DataType metadataType = v1MetadataCol.dataType();
+    // Carry the V1 attribute's metadata (the `__file_source_metadata_col` marker) so references
+    // to this column in filters are recognized by FileSourceStrategy's metadata handling
+    // (constant-metadata file pruning, filter rebinding) after the lowering.
+    String v1MetadataJson = v1MetadataCol.metadata().json();
     return new MetadataColumn[] {
       new MetadataColumn() {
         @Override
@@ -141,6 +148,11 @@ public class ParquetFileScanTable extends FileTable implements SupportsMetadataC
         @Override
         public boolean isNullable() {
           return false;
+        }
+
+        @Override
+        public String metadataInJSON() {
+          return v1MetadataJson;
         }
       }
     };
@@ -165,6 +177,12 @@ public class ParquetFileScanTable extends FileTable implements SupportsMetadataC
         dataType instanceof TimestampLTZNanosType) {
       // Nanosecond-capable timestamps are not yet supported by this datasource.
       return false;
+    } else if (dataType instanceof NullType) {
+      // Read-only table: the V1 parquet READ path supports VOID columns (SPARK-54220, e.g.
+      // external files with the UNKNOWN type annotation), so accept them here too. Writes never
+      // consult this table (it advertises no BATCH_WRITE), so this does not loosen the write-side
+      // validation.
+      return true;
     } else if (dataType instanceof AtomicType) {
       return true;
     } else if (dataType instanceof StructType) {
