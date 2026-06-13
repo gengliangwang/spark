@@ -1958,7 +1958,7 @@ Project [f2#x, f3#x, f1#x]
       :  :                 +- LocalRelation [col1#x]
       :  +- SubqueryAlias zt3
       :     +- View (`zt3`, [f3#x])
-      :        +- Relation [f3#x] parquet
+      :        +- RelationV2[f3#x] parquet 
       +- SubqueryAlias zt1
          +- View (`zt1`, [f1#x])
             +- Project [cast(f1#x as int) AS f1#x]
@@ -2001,7 +2001,7 @@ Project [f2#x, f3#x, f1#x, junk#x]
       :  :                 +- LocalRelation [col1#x]
       :  +- SubqueryAlias zt3
       :     +- View (`zt3`, [f3#x])
-      :        +- Relation [f3#x] parquet
+      :        +- RelationV2[f3#x] parquet 
       +- SubqueryAlias zv1
          +- View (`zv1`, [f1#x, junk#x])
             +- Project [cast(f1#x as int) AS f1#x, cast(junk#x as string) AS junk#x]
@@ -2051,10 +2051,10 @@ Project [i#x, x#x, y#x]
 +- Join LeftOuter, (((i#x = x#x) AND (i#x = y#x)) AND (x#x = i#x))
    :- SubqueryAlias a
    :  +- View (`a`, [i#x])
-   :     +- Relation [i#x] parquet
+   :     +- RelationV2[i#x] parquet 
    +- SubqueryAlias b
       +- View (`b`, [x#x, y#x])
-         +- Relation [x#x,y#x] parquet
+         +- RelationV2[x#x, y#x] parquet
 
 
 -- !query

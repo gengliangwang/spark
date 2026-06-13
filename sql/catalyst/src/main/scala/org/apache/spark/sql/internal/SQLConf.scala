@@ -1672,6 +1672,7 @@ object SQLConf {
 
   val PARQUET_FILE_SCAN_CONNECTOR_ENABLED =
     buildConf("spark.sql.parquet.fileScanConnector.enabled")
+      .withBindingPolicy(ConfigBindingPolicy.SESSION)
       .internal()
       .doc("When true, the Parquet data source v2 serves batch reads through the Java " +
         "connector built on the FileScan interface: the DSv2 logical plan is kept through " +

@@ -3095,6 +3095,10 @@ class SQLQuerySuite extends SharedSparkSession with AdaptiveSparkPlanHelper
 
     Seq("orc", "parquet").foreach { format =>
       withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+        // This test validates pushed-down filters on the V2 ParquetScan/BatchScanExec path.
+        // Disable the Parquet FileScan connector so that path (rather than the connector's
+        // FileSourceScanExec lowering) is exercised for parquet.
+        SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false",
         SQLConf.PARQUET_FILTER_PUSHDOWN_STRING_PREDICATE_ENABLED.key -> "false") {
         withTempPath { dir =>
           spark.range(10).map(i => (i, i.toString)).toDF("id", "s")

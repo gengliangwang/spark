@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.execution
 
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.connector.SimpleWritableDataSource
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, DisableAdaptiveExecutionSuite, EnableAdaptiveExecutionSuite}
@@ -29,6 +30,12 @@ abstract class RemoveRedundantProjectsSuiteBase
   extends SharedSparkSession
     with AdaptiveSparkPlanHelper {
   import testImplicits._
+
+  // `testView` is a path-based parquet read whose expected ProjectExec counts were calibrated on
+  // the V1 FileSourceScanExec path. Keep parquet on the V1 source list so the Parquet FileScan
+  // connector's lowering (which can leave an extra projection) does not change those counts.
+  override protected def sparkConf: SparkConf =
+    super.sparkConf.set(SQLConf.USE_V1_SOURCE_LIST.key, "avro,csv,json,kafka,orc,parquet,text")
 
   private def assertProjectExecCount(df: DataFrame, expected: Int): Unit = {
     withClue(df.queryExecution) {

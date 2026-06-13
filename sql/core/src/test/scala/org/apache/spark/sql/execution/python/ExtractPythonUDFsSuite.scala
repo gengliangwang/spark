@@ -131,7 +131,10 @@ class ExtractPythonUDFsSuite extends SharedSparkSession {
   }
 
   test("Python UDF should not break column pruning/filter pushdown -- Parquet V2") {
-    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+      // This test asserts on the V2 BatchScanExec/ParquetScan; disable the Parquet FileScan
+      // connector so that path is exercised rather than the connector's FileSourceScanExec.
+      SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false") {
       withTempPath { f =>
         spark.range(10).select($"id".as("a"), $"id".as("b"))
           .write.parquet(f.getCanonicalPath)

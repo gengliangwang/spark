@@ -168,6 +168,9 @@ class DataSourceV2ScanExecRedactionSuite extends DataSourceScanRedactionTest {
 
   override protected def sparkConf: SparkConf = super.sparkConf
     .set(SQLConf.USE_V1_SOURCE_LIST.key, "")
+    // This suite tests redaction of the V2 BatchScanExec. Disable the Parquet FileScan connector
+    // so parquet is read via the V2 ParquetScan/BatchScanExec rather than FileSourceScanExec.
+    .set(SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key, "false")
 
   override protected def getRootPath(df: DataFrame): Path =
     df.queryExecution.sparkPlan.find(_.isInstanceOf[BatchScanExec]).get

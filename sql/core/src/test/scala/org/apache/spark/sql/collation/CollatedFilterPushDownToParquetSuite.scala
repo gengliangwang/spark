@@ -253,6 +253,9 @@ class CollatedFilterPushDownToParquetV2Suite extends CollatedFilterPushDownToPar
     super
       .sparkConf
       .set(SQLConf.USE_V1_SOURCE_LIST, "")
+      // This suite extracts pushed filters from the V2 ParquetScan. Disable the Parquet FileScan
+      // connector so that path is exercised rather than the connector's FileSourceScanExec.
+      .set(SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED, false)
 
   override def getPushedDownFilters(query: DataFrame): Seq[Filter] = {
     query.queryExecution.optimizedPlan.collectFirst {
