@@ -1232,7 +1232,7 @@ class DataStreamWriter:
         ...             "timestamp").format("parquet").option("checkpointLocation", cp).start(d)
         ...         time.sleep(5)
         ...         q.stop()
-        ...         spark.read.schema(df.schema).parquet(d).select("timestamp", "value").show()
+        ...         spark.read.schema(df.schema).parquet(d).show()
         +...---------+-----+
         |...timestamp|value|
         +...---------+-----+

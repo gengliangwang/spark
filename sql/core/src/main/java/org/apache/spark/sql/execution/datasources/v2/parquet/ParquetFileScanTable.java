@@ -88,6 +88,16 @@ public class ParquetFileScanTable extends FileTable implements SupportsMetadataC
   }
 
   @Override
+  public StructType schema() {
+    // Honor the user-specified column order (V1-compatible). FileTable.schema appends partition
+    // columns last, but the V1 file-source path this connector lowers to preserves the
+    // user-specified column order, so a read with an explicit schema returns columns in that
+    // order rather than (data ++ partitions). super.schema() supplies the validated, type-
+    // resolved fields; reorderToUserSchema only reorders them.
+    return reorderToUserSchema(super.schema());
+  }
+
+  @Override
   public ScanBuilder newScanBuilder(CaseInsensitiveStringMap scanOptions) {
     return new ParquetFileScanBuilder(
       session, fileIndex(), schema(), dataSchema(), mergedOptions(scanOptions));

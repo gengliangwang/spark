@@ -102,6 +102,24 @@ abstract class FileTable(
     StructType(fields)
   }
 
+  /**
+   * Reorders `base` (this table's full schema) to follow the user-specified schema's column
+   * order. The default V2 file-source schema appends partition columns last, but the V1
+   * file-source path preserves the user-specified column order. A connector that lowers to the
+   * V1 path can use this so that `spark.read.schema(userSchema).load(...)` returns columns in the
+   * user's order regardless of partitioning, matching V1. No-op when no user schema was provided
+   * or when `base` and the user schema do not contain exactly the same columns.
+   */
+  protected def reorderToUserSchema(base: StructType): StructType = {
+    userSpecifiedSchema.map { user =>
+      val resolver = sparkSession.sessionState.conf.resolver
+      val reordered = user.fields.flatMap { uf =>
+        base.fields.find(bf => resolver(bf.name, uf.name))
+      }
+      if (reordered.length == base.fields.length) StructType(reordered) else base
+    }.getOrElse(base)
+  }
+
   override def partitioning: Array[Transform] =
     fileIndex.partitionSchema.names.toImmutableArraySeq.asTransforms
 

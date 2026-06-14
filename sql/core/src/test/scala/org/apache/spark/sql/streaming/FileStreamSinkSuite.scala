@@ -825,6 +825,9 @@ class FileStreamSinkV2Suite extends FileStreamSinkSuite {
     super
       .sparkConf
       .set(SQLConf.USE_V1_SOURCE_LIST, "")
+      // This suite asserts on the V2 BatchScanExec/FileScan node. Disable the Parquet FileScan
+      // connector so parquet is read via that path rather than the connector's FileSourceScanExec.
+      .set(SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED, false)
 
   override def checkQueryExecution(df: DataFrame): Unit = {
     // Verify that MetadataLogFileIndex is being used and the correct partitioning schema has
