@@ -1191,7 +1191,10 @@ private[sql] object DataSourceV2Strategy extends Logging {
       val resolver = session.sessionState.conf.resolver
       val boundPartitionFilters = pushedPartitionFilters.map(_.transform {
         case a: AttributeReference =>
-          relation.output.find(o => resolver(o.name, a.name)).getOrElse(a)
+          // Keep the original qualifier so the filter's display (e.g. partition-pruning checks)
+          // matches the V1 path; bind to the relation's (possibly re-minted) attribute id.
+          relation.output.find(o => resolver(o.name, a.name))
+            .map(_.withQualifier(a.qualifier)).getOrElse(a)
       })
       val allBranchFilters = branchFilters ++ boundPartitionFilters ++ generatedFilters
       val withFilter =

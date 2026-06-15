@@ -18,11 +18,11 @@
 package org.apache.spark.sql.execution.datasources.v2.parquet
 
 import scala.collection.mutable
+import scala.util.control.NonFatal
 
 import org.apache.spark.sql.catalyst.expressions.{Expression, PythonUDF, SubqueryExpression}
 import org.apache.spark.sql.connector.expressions.filter.Predicate
 import org.apache.spark.sql.execution.datasources.{DataSourceStrategy, DataSourceUtils}
-import org.apache.spark.sql.sources.Filter
 import org.apache.spark.sql.types.StructType
 
 /**
@@ -57,15 +57,23 @@ private[parquet] object ParquetFileScanFilterPushdown {
     val (prunablePartitionFilters, nonPrunablePartitionFilters) = partitionFilters.partition { f =>
       !SubqueryExpression.hasSubquery(f) && !f.exists(_.isInstanceOf[PythonUDF])
     }
-    val translated = mutable.ArrayBuffer.empty[Filter]
+    // Translate data predicates to V2 predicates for reporting (pushedFilters). Best-effort: a
+    // predicate the source cannot represent (e.g. a comparison against a whole `_metadata` struct,
+    // whose value has no V2 literal) is skipped here. It still stays a post-scan filter, so this
+    // only affects what is displayed, not correctness or pushdown.
+    val pushable = mutable.ArrayBuffer.empty[Predicate]
     for (filterExpr <- dataFilters) {
-      DataSourceStrategy.translateFilter(filterExpr, supportNestedPredicatePushdown = true)
-        .foreach(translated += _)
+      try {
+        DataSourceStrategy.translateFilter(filterExpr, supportNestedPredicatePushdown = true)
+          .foreach(f => pushable += f.toV2)
+      } catch {
+        case NonFatal(_) => // not representable as a pushed V2 predicate; reported via post-scan
+      }
     }
     new Result(
       postScanFilters = dataFilters ++ nonPrunablePartitionFilters ++ nonDeterministic,
       partitionFilters = prunablePartitionFilters.toArray,
       dataFilters = dataFilters.toArray,
-      pushedFilters = translated.map(_.toV2).toArray)
+      pushedFilters = pushable.toArray)
   }
 }
