@@ -38,10 +38,12 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 /**
  * A {@link FileScan} over a Parquet table: a single {@link FileSet} pairing the table's
- * {@code FileIndex} with the Parquet {@code FileFormat}. The planner lowers it to a V1
- * {@code FileSourceScanExec}, re-deriving partition/data filters and column pruning from the
- * query, so execution (vectorized reader, filter pushdown, partition pruning) is identical to
- * the V1 read path.
+ * {@code FileIndex} with the Parquet {@code FileFormat}. Predicate pushdown is captured via
+ * {@link ParquetFileScanBuilder} (via SupportsPushDownCatalystFilters) and surfaced through
+ * {@link #partitionFilters()} / {@link #dataFilters()}. The planner lowers this scan to a V1
+ * {@code FileSourceScanExec}, re-applying the pushed partition filters and the post-scan data
+ * filters and column pruning, so execution (vectorized reader, filter pushdown, partition
+ * pruning) is identical to the V1 read path.
  */
 public class ParquetFileScan implements FileScan, SupportsReportStatistics {
 
@@ -50,18 +52,24 @@ public class ParquetFileScan implements FileScan, SupportsReportStatistics {
   private final StructType dataSchema;
   private final StructType readSchema;
   private final CaseInsensitiveStringMap options;
+  private final Expression[] partitionFilters;
+  private final Expression[] dataFilters;
 
   public ParquetFileScan(
       SparkSession session,
       PartitioningAwareFileIndex fileIndex,
       StructType dataSchema,
       StructType readSchema,
-      CaseInsensitiveStringMap options) {
+      CaseInsensitiveStringMap options,
+      Expression[] partitionFilters,
+      Expression[] dataFilters) {
     this.session = session;
     this.fileIndex = fileIndex;
     this.dataSchema = dataSchema;
     this.readSchema = readSchema;
     this.options = options;
+    this.partitionFilters = partitionFilters;
+    this.dataFilters = dataFilters;
   }
 
   @Override
@@ -69,17 +77,20 @@ public class ParquetFileScan implements FileScan, SupportsReportStatistics {
     return readSchema;
   }
 
-  // Nothing is consumed at the DSv2 level: the planner re-derives partition and data filters
-  // from the post-scan predicates when lowering, so reporting none here is both accurate and
-  // avoids double evaluation.
+  // Prunable partition predicates pushed via SupportsPushDownCatalystFilters. The planner
+  // re-applies these when lowering to FileSourceScanExec so partition pruning matches the V1 read
+  // path; they are not in the post-scan predicates because the DSv2 push consumed them.
   @Override
   public Expression[] partitionFilters() {
-    return new Expression[0];
+    return partitionFilters;
   }
 
+  // Data predicates pushed via SupportsPushDownCatalystFilters, reported for display. They are
+  // also kept as post-scan filters, so the planner re-evaluates them above the lowered scan and
+  // FileSourceStrategy pushes them into the parquet reader.
   @Override
   public Expression[] dataFilters() {
-    return new Expression[0];
+    return dataFilters;
   }
 
   @Override

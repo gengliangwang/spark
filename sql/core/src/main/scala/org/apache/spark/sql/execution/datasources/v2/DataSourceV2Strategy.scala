@@ -1130,6 +1130,10 @@ private[sql] object DataSourceV2Strategy extends Logging {
       planned.head
     }
 
+    // Prunable partition predicates the scan reported via SupportsPushDownCatalystFilters were
+    // consumed from the post-scan predicates, so re-apply them here (rebased per branch) for
+    // FileSourceStrategy to perform partition pruning, matching the V1 read path.
+    val pushedPartitionFilters = fileScan.partitionFilters().toImmutableArraySeq
     val branchPlans = fileSets.toSeq.zipWithIndex.map { case (fs, i) =>
       // The first branch keeps the original output attributes (and their expr ids) because
       // UnionExec derives its output from the first child, and the parent plan references
@@ -1181,7 +1185,15 @@ private[sql] object DataSourceV2Strategy extends Logging {
       } else {
         Nil
       }
-      val allBranchFilters = branchFilters ++ generatedFilters
+      // Pushed partition filters reference the scan's partition attributes, which may have been
+      // pruned from the scan output and re-minted with fresh ids in the synthesized relation.
+      // Rebind them to this relation's attributes by name so FileSourceStrategy can prune.
+      val resolver = session.sessionState.conf.resolver
+      val boundPartitionFilters = pushedPartitionFilters.map(_.transform {
+        case a: AttributeReference =>
+          relation.output.find(o => resolver(o.name, a.name)).getOrElse(a)
+      })
+      val allBranchFilters = branchFilters ++ boundPartitionFilters ++ generatedFilters
       val withFilter =
         if (allBranchFilters.isEmpty) scanInput
         else Filter(allBranchFilters.reduce(And), scanInput)
