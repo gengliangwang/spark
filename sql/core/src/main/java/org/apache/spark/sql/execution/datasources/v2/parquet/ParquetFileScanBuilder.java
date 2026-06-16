@@ -25,6 +25,8 @@ import org.apache.spark.sql.connector.expressions.filter.Predicate;
 import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.connector.read.ScanBuilder;
 import org.apache.spark.sql.connector.read.SupportsPushDownRequiredColumns;
+import org.apache.spark.sql.connector.read.SupportsPushDownVariantExtractions;
+import org.apache.spark.sql.connector.read.VariantExtraction;
 import org.apache.spark.sql.execution.datasources.PartitioningAwareFileIndex;
 import org.apache.spark.sql.internal.connector.SupportsPushDownCatalystFilters;
 import org.apache.spark.sql.types.StructType;
@@ -42,7 +44,8 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * optimizer's pruned schema reaches the lowered scan.
  */
 public class ParquetFileScanBuilder
-    implements ScanBuilder, SupportsPushDownRequiredColumns, SupportsPushDownCatalystFilters {
+    implements ScanBuilder, SupportsPushDownRequiredColumns, SupportsPushDownCatalystFilters,
+        SupportsPushDownVariantExtractions {
 
   private final SparkSession session;
   private final PartitioningAwareFileIndex fileIndex;
@@ -53,6 +56,7 @@ public class ParquetFileScanBuilder
   private Expression[] partitionFilters = new Expression[0];
   private Expression[] dataFilters = new Expression[0];
   private Predicate[] pushedFilters = new Predicate[0];
+  private VariantExtraction[] variantExtractions = new VariantExtraction[0];
 
   public ParquetFileScanBuilder(
       SparkSession session,
@@ -88,8 +92,18 @@ public class ParquetFileScanBuilder
   }
 
   @Override
+  public boolean[] pushVariantExtractions(VariantExtraction[] extractions) {
+    // Parquet supports all variant extractions: the request is encoded as VariantMetadata on the
+    // read schema and lowered to the V1 parquet reader, which shreds the variant.
+    this.variantExtractions = extractions;
+    boolean[] accepted = new boolean[extractions.length];
+    java.util.Arrays.fill(accepted, true);
+    return accepted;
+  }
+
+  @Override
   public Scan build() {
-    return new ParquetFileScan(
-      session, fileIndex, dataSchema, requiredSchema, options, partitionFilters, dataFilters);
+    return new ParquetFileScan(session, fileIndex, dataSchema, requiredSchema, options,
+      partitionFilters, dataFilters, variantExtractions);
   }
 }

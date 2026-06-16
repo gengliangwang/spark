@@ -1047,7 +1047,8 @@ private[sql] object DataSourceV2Strategy extends Logging {
       // physical data columns. Leaving `_metadata` in `dataSchema` makes FileSourceStrategy
       // treat it as a data column and the file reader fails with "Required column is missing in
       // data file". `_metadata` is re-exposed separately via `exposeMetadata`.
-      val dataSchema = StructType(tableSchema.filterNot(f => MetadataAttribute.isValid(f.metadata)))
+      val dataSchema = fileScan.rewriteDataSchema(
+        StructType(tableSchema.filterNot(f => MetadataAttribute.isValid(f.metadata))))
       val hfsr = HadoopFsRelation(
         location = fs.index(),
         partitionSchema = partitionSchema,

@@ -22,6 +22,7 @@ import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.Expression;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
+import org.apache.spark.sql.types.StructType;
 
 /**
  * A {@link Scan} that exposes its file-source structure to the planner. When the planner sees a
@@ -38,16 +39,17 @@ import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 public interface FileScan extends Scan {
 
   /**
-   * Partition-column predicates the connector reports as having applied at file-listing time.
-   * Informational only: the planner re-derives partition/data filters from the post-scan predicates
-   * left by {@code PhysicalOperation} and does not re-apply these (re-adding a predicate the
-   * connector already removed from the post-scan set would evaluate it twice).
+   * Partition-column predicates the connector consumed (removed from the post-scan predicates) via
+   * pushdown. The planner re-applies these to the synthesized relation so
+   * {@code FileSourceStrategy} performs partition pruning; because they are no longer in the
+   * post-scan predicates, this does not double-evaluate them.
    */
   Expression[] partitionFilters();
 
   /**
    * Data-column predicates the connector reports as having pushed into the file reader.
-   * Informational only, like {@link #partitionFilters()}: the planner does not re-apply these.
+   * Informational only (reported for display): they remain post-scan predicates, so the planner
+   * re-applies and pushes them via {@code FileSourceStrategy} rather than re-adding them here.
    */
   Expression[] dataFilters();
 
@@ -78,5 +80,15 @@ public interface FileScan extends Scan {
    */
   default NamedExpression rewriteMetadataColumn(AttributeReference metadata) {
     return metadata;
+  }
+
+  /**
+   * Rewrites the data schema the planner uses for the synthesized {@code HadoopFsRelation},
+   * applying read-schema transformations this scan pushed down -- e.g. replacing extracted variant
+   * columns with their shredded ("variant struct") types so the V1 reader shreds them as it would
+   * on the V1 path. Identity by default.
+   */
+  default StructType rewriteDataSchema(StructType dataSchema) {
+    return dataSchema;
   }
 }

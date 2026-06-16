@@ -29,6 +29,7 @@ import org.apache.spark.sql.connector.read.FileScan;
 import org.apache.spark.sql.connector.read.FileSet;
 import org.apache.spark.sql.connector.read.Statistics;
 import org.apache.spark.sql.connector.read.SupportsReportStatistics;
+import org.apache.spark.sql.connector.read.VariantExtraction;
 import org.apache.spark.sql.execution.datasources.FileIndex;
 import org.apache.spark.sql.execution.datasources.FileFormat;
 import org.apache.spark.sql.execution.datasources.PartitioningAwareFileIndex;
@@ -54,6 +55,7 @@ public class ParquetFileScan implements FileScan, SupportsReportStatistics {
   private final CaseInsensitiveStringMap options;
   private final Expression[] partitionFilters;
   private final Expression[] dataFilters;
+  private final VariantExtraction[] variantExtractions;
 
   public ParquetFileScan(
       SparkSession session,
@@ -62,7 +64,8 @@ public class ParquetFileScan implements FileScan, SupportsReportStatistics {
       StructType readSchema,
       CaseInsensitiveStringMap options,
       Expression[] partitionFilters,
-      Expression[] dataFilters) {
+      Expression[] dataFilters,
+      VariantExtraction[] variantExtractions) {
     this.session = session;
     this.fileIndex = fileIndex;
     this.dataSchema = dataSchema;
@@ -70,11 +73,15 @@ public class ParquetFileScan implements FileScan, SupportsReportStatistics {
     this.options = options;
     this.partitionFilters = partitionFilters;
     this.dataFilters = dataFilters;
+    this.variantExtractions = variantExtractions;
   }
 
   @Override
   public StructType readSchema() {
-    return readSchema;
+    // When variant extractions are pushed, replace the variant columns with VariantMetadata
+    // structs so the lowered V1 parquet reader shreds them (same encoding as ParquetScan).
+    // No-op when there are no extractions.
+    return ParquetVariantSchemaRewrite.rewrite(readSchema, variantExtractions);
   }
 
   // Prunable partition predicates pushed via SupportsPushDownCatalystFilters. The planner
@@ -91,6 +98,13 @@ public class ParquetFileScan implements FileScan, SupportsReportStatistics {
   @Override
   public Expression[] dataFilters() {
     return dataFilters;
+  }
+
+  // Apply pushed variant extractions to the synthesized relation's data schema so the lowered V1
+  // parquet reader shreds the same variant columns (VariantMetadata) the DSv2 scan reports.
+  @Override
+  public StructType rewriteDataSchema(StructType dataSchema) {
+    return ParquetVariantSchemaRewrite.rewrite(dataSchema, variantExtractions);
   }
 
   @Override
