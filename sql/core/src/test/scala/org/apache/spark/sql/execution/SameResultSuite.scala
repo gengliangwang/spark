@@ -52,7 +52,10 @@ class SameResultSuite extends SharedSparkSession {
   }
 
   test("FileScan: different orders of data filters and partition filters") {
-    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+      // This test extracts the V2 BatchScanExec; disable the Parquet FileScan connector so parquet
+      // is read via BatchScanExec rather than the connector's FileSourceScanExec.
+      SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false") {
       Seq("orc", "json", "csv", "parquet").foreach { format =>
         withTempPath { path =>
           val tmpDir = path.getCanonicalPath

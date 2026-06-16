@@ -617,7 +617,12 @@ class ParquetV1AggregatePushDownSuite extends ParquetAggregatePushDownSuite {
 class ParquetV2AggregatePushDownSuite extends ParquetAggregatePushDownSuite {
 
   override protected def sparkConf: SparkConf =
-    super.sparkConf.set(SQLConf.USE_V1_SOURCE_LIST, "")
+    super.sparkConf
+      .set(SQLConf.USE_V1_SOURCE_LIST, "")
+      // Keep this suite on the legacy Scala parquet v2 connector (ParquetScan): it asserts
+      // on its plan shapes / pushdown internals, which the FileScan-based Java connector
+      // replaces by default.
+      .set(SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED, false)
 }
 
 abstract class OrcAggregatePushDownSuite extends OrcTest with FileSourceAggregatePushDownSuite {

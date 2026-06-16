@@ -496,7 +496,10 @@ class ExplainSuite extends ExplainSuiteHelper with DisableAdaptiveExecutionSuite
           .save(basePath)
         val readSchema =
           StructType(Seq(StructField("id", IntegerType), StructField("value", IntegerType)))
-        withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+        withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+          // The expected plan fragment is the V2 BatchScan. Disable the Parquet FileScan connector
+          // so parquet is read via BatchScanExec rather than the connector's FileSourceScanExec.
+          SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false") {
           val df = spark
             .read
             .schema(readSchema)

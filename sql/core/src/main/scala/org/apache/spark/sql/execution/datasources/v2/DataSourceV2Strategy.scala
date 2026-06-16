@@ -18,6 +18,7 @@
 package org.apache.spark.sql.execution.datasources.v2
 
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 
 import org.apache.hadoop.fs.Path
 
@@ -27,11 +28,12 @@ import org.apache.spark.internal.LogKeys.EXPR
 import org.apache.spark.sql.catalyst.analysis.{NamedRelation, ResolvedIdentifier, ResolvedNamespace, ResolvedPartitionSpec, ResolvedPersistentView, ResolvedTable, ResolvedTempView}
 import org.apache.spark.sql.catalyst.catalog.CatalogUtils
 import org.apache.spark.sql.catalyst.expressions
-import org.apache.spark.sql.catalyst.expressions.{And, Attribute, DynamicPruning, Expression, NamedExpression, Not, Or, PredicateHelper, SubqueryExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, And, Attribute, AttributeReference, DynamicPruning, EmptyRow, Expression, Literal, MetadataAttribute, MetadataAttributeWithLogicalName, NamedExpression, Not, Or, PredicateHelper, SubqueryExpression}
 import org.apache.spark.sql.catalyst.expressions.Literal.TrueLiteral
 import org.apache.spark.sql.catalyst.planning.PhysicalOperation
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.trees.TreePattern.SCALAR_SUBQUERY
+import org.apache.spark.sql.catalyst.types.DataTypeUtils
 import org.apache.spark.sql.catalyst.util.{quoteIfNeeded, toPrettySQL, GeneratedColumn, IdentityColumn, ResolveDefaultColumns, ResolveTableConstraints, V2ExpressionBuilder}
 import org.apache.spark.sql.classic.SparkSession
 import org.apache.spark.sql.connector.catalog.{CatalogV2Util, Dependency, DependencyList, Identifier, StagingTableCatalog, SupportsDeleteV2, SupportsNamespaces, SupportsPartitionManagement, SupportsWrite, TableCapability, TableCatalog, TableSummary, TruncatableTable, V1Table, V1ViewInfo, ViewCatalog}
@@ -39,18 +41,19 @@ import org.apache.spark.sql.connector.catalog.TableChange
 import org.apache.spark.sql.connector.catalog.index.SupportsIndex
 import org.apache.spark.sql.connector.expressions.{FieldReference, LiteralValue}
 import org.apache.spark.sql.connector.expressions.filter.{And => V2And, Not => V2Not, Or => V2Or, Predicate}
-import org.apache.spark.sql.connector.read.LocalScan
+import org.apache.spark.sql.connector.read.{FileScan => ConnectorFileScan, FileSet, LocalScan}
 import org.apache.spark.sql.connector.read.streaming.{ContinuousStream, MicroBatchStream, SupportsRealTimeMode}
 import org.apache.spark.sql.connector.write.{V1Write, Write}
 import org.apache.spark.sql.errors.{QueryCompilationErrors, QueryExecutionErrors}
-import org.apache.spark.sql.execution.{FilterExec, InSubqueryExec, LeafExecNode, LocalTableScanExec, ProjectExec, RowDataSourceScanExec, ScalarSubquery => ExecScalarSubquery, SparkPlan, SparkStrategy => Strategy}
+import org.apache.spark.sql.execution.{FilterExec, InSubqueryExec, LeafExecNode, LocalTableScanExec, ProjectExec, RowDataSourceScanExec, ScalarSubquery => ExecScalarSubquery, SparkPlan, SparkStrategy => Strategy, UnionExec}
 import org.apache.spark.sql.execution.command.{CommandUtils, MetricViewHelper}
-import org.apache.spark.sql.execution.datasources.{DataSourceStrategy, LogicalRelationWithTable, PushableColumnAndNestedColumn}
+import org.apache.spark.sql.execution.datasources.{DataSourceStrategy, FileFormat, FileSourceStrategy, HadoopFsRelation, LogicalRelation, LogicalRelationWithTable, PushableColumnAndNestedColumn}
 import org.apache.spark.sql.execution.streaming.continuous.{WriteToContinuousDataSource, WriteToContinuousDataSourceExec}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.StaticSQLConf.WAREHOUSE_PATH
 import org.apache.spark.sql.metricview.logical.CreateMetricView
 import org.apache.spark.sql.sources.{BaseRelation, TableScan}
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.storage.StorageLevel
 import org.apache.spark.util.ArrayImplicits._
 import org.apache.spark.util.SparkStringUtils
@@ -158,6 +161,18 @@ class DataSourceV2Strategy(session: SparkSession) extends Strategy with Predicat
       val localScanExec = LocalTableScanExec(output, scan.rows().toImmutableArraySeq, None)
       DataSourceV2Strategy.withProjectAndFilter(
         project, filters, localScanExec, needsUnsafeConversion = false) :: Nil
+
+    // FileScan: bridge a DSv2 scan back to the V1 file-source pipeline so the V1-only
+    // execution paths (FileSourceScanExec, vectorized file readers, file-source optimizer
+    // and planner rules) light up. The scan exposes its file structure (FileIndex +
+    // FileFormat + partition/data columns) via the FileBatch / FileSet shape; we rebuild a
+    // HadoopFsRelation, wrap it in a LogicalRelation, and delegate to FileSourceStrategy.
+    // Matches before the generic DataSourceV2ScanRelation arm below.
+    case PhysicalOperation(project, filters, relation: DataSourceV2ScanRelation)
+        if relation.scan.isInstanceOf[ConnectorFileScan] =>
+      DataSourceV2Strategy.planFileScan(
+        session, relation.relation.schema, relation.scan.asInstanceOf[ConnectorFileScan],
+        project, filters, relation.output)
 
     case PhysicalOperation(project, filters, relation: DataSourceV2ScanRelation) =>
       // projection and filters were already pushed down in the optimizer.
@@ -979,6 +994,226 @@ private[sql] object DataSourceV2Strategy extends Logging {
       case s: ExecScalarSubquery => s.toLiteral
     }
     translateFilterV2(literalized)
+  }
+
+
+  /**
+   * Rewrites a [[DataSourceV2ScanRelation]] whose scan is a [[ConnectorFileScan]] into V1
+   * [[LogicalRelation]]s backed by [[HadoopFsRelation]]s (one per [[FileSet]]) and re-plans each
+   * through [[FileSourceStrategy]]. This unlocks the V1 file-source execution path
+   * (`FileSourceScanExec`, vectorized readers, file-source planner rules) for DSv2 connectors
+   * that can expose their file layout.
+   *
+   * A [[ConnectorFileScan]] may return more than one [[FileSet]] to model a hybrid scan; the
+   * resulting per-set plans are combined with a [[UnionExec]]. All file sets are expected to
+   * produce the scan's output schema.
+   *
+   * The `postScanFilters` from [[PhysicalOperation]] (i.e. the predicates the connector left as
+   * post-scan) and the `project` list are pushed into each per-set branch so
+   * [[FileSourceStrategy]] re-derives partition/data filters (re-pushing them to the file index
+   * and the file reader) and prunes columns. Connector-side `partitionFilters` / `dataFilters`
+   * reported on [[ConnectorFileScan]] are informational only and not re-added here -- if the scan
+   * reported them as accepted but did not remove them from `postScanFilters`, adding them again
+   * would cause each predicate to evaluate twice.
+   *
+   * `tableSchema` is the connector table's schema (used to split partition vs. data columns); the
+   * method does not otherwise depend on the [[DataSourceV2Relation]].
+   */
+  private[v2] def planFileScan(
+      session: SparkSession,
+      tableSchema: StructType,
+      fileScan: ConnectorFileScan,
+      project: Seq[NamedExpression],
+      postScanFilters: Seq[Expression],
+      output: Seq[AttributeReference]): Seq[SparkPlan] = {
+    val fileSets = fileScan.planFileBatch().planFileSets()
+    if (fileSets.isEmpty) {
+      throw SparkException.internalError("FileScan returned no FileSets to plan.")
+    }
+
+    def buildRelation(fs: FileSet, branchOutput: Seq[AttributeReference]): LogicalRelation = {
+      val partitionNames = fs.partitionColumns().iterator.flatMap(_.fieldNames()).toIndexedSeq
+      val partitionSchema = StructType(partitionNames.flatMap(n => tableSchema.find(_.name == n)))
+      // Pass the full table schema as `dataSchema` so `HadoopFsRelation` preserves the original
+      // partition-column positions: `PartitioningUtils.mergeDataAndPartitionSchema` substitutes
+      // the overlapping partition columns in place rather than appending them at the end.
+      // Dropping the partition columns from `dataSchema` would reorder the relation schema to
+      // (data ++ partitions) and misalign it with `relOutput`, which follows table-schema order
+      // -- producing wrong results for any table whose partition columns are not already
+      // trailing.
+      //
+      // Exclude metadata columns (e.g. `_metadata`): when the query references them, the
+      // connector relation's schema (passed in as `tableSchema`) carries them, but they are not
+      // physical data columns. Leaving `_metadata` in `dataSchema` makes FileSourceStrategy
+      // treat it as a data column and the file reader fails with "Required column is missing in
+      // data file". `_metadata` is re-exposed separately via `exposeMetadata`.
+      val dataSchema = fileScan.rewriteDataSchema(
+        StructType(tableSchema.filterNot(f => MetadataAttribute.isValid(f.metadata))))
+      val hfsr = HadoopFsRelation(
+        location = fs.index(),
+        partitionSchema = partitionSchema,
+        dataSchema = dataSchema,
+        bucketSpec = None,
+        fileFormat = fs.format(),
+        options = fs.options().asScala.toMap)(session)
+      // A V1 LogicalRelation is never partial: FileSourceStrategy resolves the relation's
+      // dataSchema and partitionSchema against its output, so the synthesized relation must
+      // expose the full table schema even when the DSv2 scan pruned columns. Reuse the branch's
+      // attribute ids for the columns the scan kept -- the re-planned project/filters bind to
+      // them, and they may carry nested-pruned struct types -- and mint fresh attributes for the
+      // pruned-away columns: nothing references them, and the branch is restricted to the scan
+      // relation's output below.
+      val attrByName = branchOutput.iterator.map(a => a.name -> a).toMap
+      val fullOutput = dataSchema.map { f =>
+        attrByName.getOrElse(f.name, DataTypeUtils.toAttribute(f))
+      }
+      LogicalRelation(
+        relation = hfsr,
+        output = fullOutput,
+        catalogTable = None,
+        isStreaming = false,
+        stream = None)
+    }
+
+    // Re-expose the connector's `_metadata` column (declared via `SupportsMetadataColumns`) by
+    // backing it with the V1 file-source `_metadata` the synthesized `HadoopFsRelation`
+    // produces, so every subfield (file_path / file_name / ... / row_index) is materialized by
+    // the lowered `FileSourceScanExec` exactly as in the V1 read path. The connector's
+    // `rewriteMetadataColumn` hook materializes subfields the file format does not produce on
+    // its own; identity when nothing needs rebuilding. Returns the plan to splice in.
+    def exposeMetadata(
+        relation: LogicalRelation,
+        dsv2Metadata: AttributeReference): LogicalPlan = {
+      val v1Metadata = relation.metadataOutput.collectFirst {
+        // Match by the logical metadata-column name: with a conflicting `_metadata` DATA column
+        // both the connector's and the synthesized v1 relation's metadata attribute are renamed
+        // (e.g. `__metadata`) while keeping the logical name. Carry the connector's expr id AND
+        // display name so the parent plan's references resolve against this branch's output.
+        case MetadataAttributeWithLogicalName(a, FileFormat.METADATA_NAME) =>
+          // The DSv2 column pruning may have pruned the metadata struct to the referenced
+          // subfields (and rewritten the plan's GetStructField ordinals accordingly), so expose
+          // the scan relation's struct type, not the relation's full one: FileSourceStrategy
+          // flattens exactly the fields present in the attribute's type.
+          a.withExprId(dsv2Metadata.exprId).withName(dsv2Metadata.name)
+            .withDataType(dsv2Metadata.dataType)
+      }.getOrElse {
+        throw SparkException.internalError(
+          "Synthesized HadoopFsRelation did not expose a _metadata column for a FileScan.")
+      }
+      val withMetadata = relation.copy(output = relation.output :+ v1Metadata)
+      withMetadata.copyTagsFrom(relation)
+      val rebuilt = fileScan.rewriteMetadataColumn(v1Metadata)
+      if (rebuilt eq v1Metadata) {
+        // No rebuild; `withMetadata` already exposes `_metadata` under the connector's expr id.
+        withMetadata
+      } else {
+        // Project the rebuilt struct in place of the metadata attribute, re-aliased to the
+        // connector's expr id so the parent plan's references resolve against this branch.
+        val projectList = withMetadata.output.map {
+          case a if a.exprId == v1Metadata.exprId =>
+            rebuilt match {
+              case Alias(child, name) => Alias(child, name)(exprId = dsv2Metadata.exprId)
+              case other => Alias(other, v1Metadata.name)(exprId = dsv2Metadata.exprId)
+            }
+          case other => other
+        }
+        Project(projectList, withMetadata)
+      }
+    }
+
+    def planBranch(branchLogical: LogicalPlan): SparkPlan = {
+      val planned = FileSourceStrategy(branchLogical)
+      if (planned.isEmpty) {
+        throw SparkException.internalError(
+          "FileSourceStrategy did not plan the LogicalRelation synthesized for a FileScan " +
+            "FileSet.")
+      }
+      planned.head
+    }
+
+    // Prunable partition predicates the scan reported via SupportsPushDownCatalystFilters were
+    // consumed from the post-scan predicates, so re-apply them here (rebased per branch) for
+    // FileSourceStrategy to perform partition pruning, matching the V1 read path.
+    val pushedPartitionFilters = fileScan.partitionFilters().toImmutableArraySeq
+    val branchPlans = fileSets.toSeq.zipWithIndex.map { case (fs, i) =>
+      // The first branch keeps the original output attributes (and their expr ids) because
+      // UnionExec derives its output from the first child, and the parent plan references
+      // those ids. Later branches get fresh attribute ids so the union children are
+      // independent; the project/filter expressions over them are rebased onto those ids.
+      val (relOutput, branchProject, branchFilters) = if (i == 0) {
+        (output, project, postScanFilters)
+      } else {
+        val rebased = output.map(_.newInstance())
+        val attrMap = output.iterator.map(_.exprId).zip(rebased.iterator).toMap
+        def rebase(e: Expression): Expression = e.transform {
+          case a: AttributeReference => attrMap.getOrElse(a.exprId, a)
+        }
+        (rebased,
+          project.map(p => rebase(p).asInstanceOf[NamedExpression]),
+          postScanFilters.map(rebase))
+      }
+
+      // `_metadata` (if the query references it) is not a data column of the synthesized
+      // relation; separate it out and re-expose it via `exposeMetadata`, leaving the
+      // relation's output to the table's columns. When absent, identical to prior behavior.
+      // Match by the attribute's LOGICAL metadata-column name, not its display name: when
+      // the table has a data column literally named `_metadata`, the connector's metadata
+      // column is renamed (e.g. `__metadata`), and matching by display name would both miss
+      // the metadata column and wrongly treat the conflicting DATA column as metadata.
+      val metadataAttr = relOutput.collectFirst {
+        case MetadataAttributeWithLogicalName(a, FileFormat.METADATA_NAME) => a
+      }
+      val dataOutput = relOutput.filterNot(a => metadataAttr.exists(_.exprId == a.exprId))
+      val relation = buildRelation(fs, dataOutput)
+      val scanInput = metadataAttr match {
+        case Some(md) => exposeMetadata(relation, md)
+        case None => relation
+      }
+      // Connector-derived filters (e.g. partition predicates implied by generated-column
+      // expressions): re-derive the filters implied by this branch's filters and include them
+      // in the re-planned Filter, so FileSourceStrategy extracts the same partition pruning as
+      // the connector's own listing would. Resolved against this branch's relation so the
+      // references carry the branch's attribute ids.
+      val generatedFilters = if (branchFilters.nonEmpty) {
+        fileScan.derivePartitionFilters(branchFilters.toArray, relation.output.toArray[Attribute])
+          // The V1 path generates such filters in the optimizer, where ConstantFolding
+          // subsequently folds the literal-only subexpressions. Here the optimizer has already
+          // run, so fold them explicitly.
+          .map(_.transformUp {
+            case e if e.foldable && !e.isInstanceOf[Literal] =>
+              Literal.create(e.eval(EmptyRow), e.dataType)
+          }).toSeq
+      } else {
+        Nil
+      }
+      // Pushed partition filters reference the scan's partition attributes, which may have been
+      // pruned from the scan output and re-minted with fresh ids in the synthesized relation.
+      // Rebind them to this relation's attributes by name so FileSourceStrategy can prune.
+      val resolver = session.sessionState.conf.resolver
+      val boundPartitionFilters = pushedPartitionFilters.map(_.transform {
+        case a: AttributeReference =>
+          // Keep the original qualifier so the filter's display (e.g. partition-pruning checks)
+          // matches the V1 path; bind to the relation's (possibly re-minted) attribute id.
+          relation.output.find(o => resolver(o.name, a.name))
+            .map(_.withQualifier(a.qualifier)).getOrElse(a)
+      })
+      val allBranchFilters = branchFilters ++ boundPartitionFilters ++ generatedFilters
+      val withFilter =
+        if (allBranchFilters.isEmpty) scanInput
+        else Filter(allBranchFilters.reduce(And), scanInput)
+      val branchLogical: LogicalPlan = if (branchProject.nonEmpty) {
+        Project(branchProject, withFilter)
+      } else if (withFilter.output != relOutput) {
+        // The synthesized relation exposes the full table schema; restrict the branch to the
+        // (possibly pruned) DSv2 scan relation output it stands in for.
+        Project(relOutput, withFilter)
+      } else {
+        withFilter
+      }
+      planBranch(branchLogical)
+    }
+    val result = if (branchPlans.length == 1) branchPlans.head else UnionExec(branchPlans)
+    result :: Nil
   }
 
   /**

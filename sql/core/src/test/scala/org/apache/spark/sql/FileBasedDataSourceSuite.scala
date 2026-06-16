@@ -1008,7 +1008,10 @@ class FileBasedDataSourceSuite extends SharedSparkSession
   }
 
   test("File source v2: support partition pruning") {
-    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+    // Pin the legacy Scala v2 connectors: this test asserts on their FileScan/BatchScanExec
+    // internals, which the FileScan-based Java parquet connector replaces.
+    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+        SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false") {
       allFileBasedDataSources.foreach { format =>
         withTempPath { dir =>
           Seq(("a", 1, 2), ("b", 1, 2), ("c", 2, 1))
@@ -1054,7 +1057,10 @@ class FileBasedDataSourceSuite extends SharedSparkSession
   }
 
   test("File source v2: support passing data filters to FileScan without partitionFilters") {
-    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+    // Pin the legacy Scala v2 connectors: this test asserts on their FileScan/BatchScanExec
+    // internals, which the FileScan-based Java parquet connector replaces.
+    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+        SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false") {
       allFileBasedDataSources.foreach { format =>
         withTempPath { dir =>
           Seq(("a", 1, 2), ("b", 1, 2), ("c", 2, 1))
@@ -1153,7 +1159,10 @@ class FileBasedDataSourceSuite extends SharedSparkSession
     }
 
     Seq("orc", "parquet").foreach { format =>
-      withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+      // Pin the legacy Scala v2 connectors: this test asserts on BatchScanExec pushdown
+      // internals, which the FileScan-based Java parquet connector replaces.
+      withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+          SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false") {
         withTempPath { dir =>
           spark.range(100).map(i => (i.toShort, i.toString)).toDF("id", "s")
             .write

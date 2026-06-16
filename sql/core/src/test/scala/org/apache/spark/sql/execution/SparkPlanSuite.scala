@@ -72,7 +72,10 @@ class SparkPlanSuite extends SharedSparkSession {
   }
 
   test("SPARK-27418 BatchScanExec should be canonicalizable after being (de)serialized") {
-    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+      // This test requires a BatchScanExec; disable the Parquet FileScan connector so parquet is
+      // read via the V2 ParquetScan path rather than the connector's FileSourceScanExec.
+      SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false") {
       withTempPath { path =>
         spark.range(1).write.parquet(path.getAbsolutePath)
         val df = spark.read.parquet(path.getAbsolutePath)

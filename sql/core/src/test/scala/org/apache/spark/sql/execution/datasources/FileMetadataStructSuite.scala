@@ -1045,6 +1045,9 @@ class FileMetadataStructSuite extends SharedSparkSession {
   }
 
   test("SPARK-43422: Keep tags during optimization when adding metadata columns") {
+    // This test sets and asserts tags on the V1 LogicalRelation, so pin the V1 read path (the
+    // default FileScan-based parquet connector keeps a DSv2 relation through optimization).
+    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "parquet") {
     withTempPath { path =>
       spark.range(end = 10).write.format("parquet").save(path.toString)
 
@@ -1068,6 +1071,7 @@ class FileMetadataStructSuite extends SharedSparkSession {
       assert(dfWithMetadata.queryExecution.analyzed.exists(isTaggedRelation))
       assert(dfWithMetadata.queryExecution.optimizedPlan.exists(isTaggedRelation))
     }
+  }
   }
 
   test("SPARK-43450: Filter on full _metadata column struct") {

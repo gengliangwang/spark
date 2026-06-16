@@ -1670,6 +1670,22 @@ object SQLConf {
       s"Class must be loadable and subclass of ${classOf[OutputCommitter].getName}")
     .createWithDefault("org.apache.parquet.hadoop.ParquetOutputCommitter")
 
+  val PARQUET_FILE_SCAN_CONNECTOR_ENABLED =
+    buildConf("spark.sql.parquet.fileScanConnector.enabled")
+      .withBindingPolicy(ConfigBindingPolicy.SESSION)
+      .internal()
+      .doc("When true, the Parquet data source v2 serves batch reads through the Java " +
+        "connector built on the FileScan interface: the DSv2 logical plan is kept through " +
+        "analysis and optimization, and lowered to the V1 file-source execution path " +
+        "(FileSourceScanExec) at planning time by DataSourceV2Strategy. When false, the " +
+        "original Scala ParquetTable/ParquetScan (BatchScanExec) implementation is used. " +
+        "Only applies when the parquet data source v2 path is taken, i.e. when 'parquet' is " +
+        "not in spark.sql.sources.useV1SourceList. Writes and streaming are unaffected: the " +
+        "FileScan-based table is read-only, so they fall back to the V1 paths.")
+      .version("5.0.0")
+      .booleanConf
+      .createWithDefault(true)
+
   val PARQUET_VECTORIZED_READER_ENABLED =
     buildConf("spark.sql.parquet.enableVectorizedReader")
       .doc("Enables vectorized parquet decoding.")
@@ -5091,7 +5107,7 @@ object SQLConf {
       "sources will fallback to Data Source V1 code path.")
     .version("3.0.0")
     .stringConf
-    .createWithDefault("avro,csv,json,kafka,orc,parquet,text")
+    .createWithDefault("avro,csv,json,kafka,orc,text")
 
   val ALLOW_EMPTY_SCHEMAS_FOR_WRITES = buildConf("spark.sql.legacy.allowEmptySchemaWrite")
     .internal()

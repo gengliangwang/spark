@@ -20,6 +20,7 @@ import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.execution.datasources._
 import org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat
 import org.apache.spark.sql.execution.datasources.v2._
+import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
@@ -29,19 +30,34 @@ class ParquetDataSourceV2 extends FileDataSourceV2 {
 
   override def shortName(): String = "parquet"
 
+  private def useFileScanConnector: Boolean =
+    sparkSession.sessionState.conf.getConf(SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED)
+
   override def getTable(options: CaseInsensitiveStringMap): Table = {
     val paths = getPaths(options)
     val tableName = getTableName(options, paths)
     val optionsWithoutPaths = getOptionsWithoutPaths(options)
-    ParquetTable(tableName, sparkSession, optionsWithoutPaths, paths, None, fallbackFileFormat)
+    if (useFileScanConnector) {
+      // The Java connector built on the FileScan interface: batch reads keep the DSv2 plan
+      // through analysis/optimization and are lowered to FileSourceScanExec at planning time.
+      // It is read-only, so writes and streaming fall back to the V1 paths.
+      new ParquetFileScanTable(tableName, sparkSession, optionsWithoutPaths, paths, None)
+    } else {
+      ParquetTable(tableName, sparkSession, optionsWithoutPaths, paths, None, fallbackFileFormat)
+    }
   }
 
   override def getTable(options: CaseInsensitiveStringMap, schema: StructType): Table = {
     val paths = getPaths(options)
     val tableName = getTableName(options, paths)
     val optionsWithoutPaths = getOptionsWithoutPaths(options)
-    ParquetTable(
-      tableName, sparkSession, optionsWithoutPaths, paths, Some(schema), fallbackFileFormat)
+    if (useFileScanConnector) {
+      new ParquetFileScanTable(
+        tableName, sparkSession, optionsWithoutPaths, paths, Some(schema))
+    } else {
+      ParquetTable(
+        tableName, sparkSession, optionsWithoutPaths, paths, Some(schema), fallbackFileFormat)
+    }
   }
 }
 

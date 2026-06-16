@@ -213,7 +213,11 @@ class ProtoToParsedPlanTestSuite extends SharedSparkSession with ResourceHelper 
         Helper.execute(catalystPlan)
       }
       val actual = withSQLConf(SQLConf.MAX_TO_STRING_FIELDS.key -> Int.MaxValue.toString) {
+        // Redact the absolute, machine-specific data path that appears in the relation name of
+        // V2 file-source reads (e.g. parquet via the FileScan connector) so golden files stay
+        // portable across machines and CI.
         removeMemoryAddress(normalizeExprIds(finalAnalyzedPlan).treeString)
+          .replaceAll("file:[^\\s,]*?/query-tests/test-data/", "file:[TEST_DATA]/")
       }
       val goldenFile = goldenFilePath.resolve(relativePath).getParent.resolve(name + ".explain")
       Try(readGoldenFile(goldenFile)) match {

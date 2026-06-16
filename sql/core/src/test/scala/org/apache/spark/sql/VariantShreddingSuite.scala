@@ -21,6 +21,7 @@ import java.io.File
 import java.sql.{Date, Timestamp}
 import java.time.LocalDateTime
 
+import org.apache.spark.SparkConf
 import org.apache.spark.SparkThrowable
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.variant.VariantExpressionEvalUtils
@@ -34,6 +35,12 @@ import org.apache.spark.types.variant._
 import org.apache.spark.unsafe.types.{UTF8String, VariantVal}
 
 class VariantShreddingSuite extends SharedSparkSession with ParquetTest {
+  // Variant shredding reads are only supported on the V1 file-source path (the V2 ParquetScan
+  // path does not support shredding). Keep parquet on the V1 source list so these tests run on
+  // that path, as they did before parquet was moved off the default V1 source list.
+  override protected def sparkConf: SparkConf =
+    super.sparkConf.set(SQLConf.USE_V1_SOURCE_LIST.key, "avro,csv,json,kafka,orc,parquet,text")
+
   def parseJson(s: String): VariantVal = {
     val v = VariantBuilder.parseJson(s, false)
     new VariantVal(v.getValue, v.getMetadata)

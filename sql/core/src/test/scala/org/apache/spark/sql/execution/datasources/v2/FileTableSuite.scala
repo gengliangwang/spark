@@ -117,7 +117,10 @@ class FileTableSuite extends SharedSparkSession {
   allFileBasedDataSources.foreach { format =>
     test("SPARK-49519, SPARK-50287: Merge options of table and relation when " +
       s"constructing ScanBuilder and WriteBuilder in FileFormat - $format") {
-      withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+      withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "",
+        // This test matches on the V2 ParquetScanBuilder; disable the Parquet FileScan connector
+        // so parquet returns ParquetTable rather than the connector's ParquetFileScanTable.
+        SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key -> "false") {
         val userSpecifiedSchema = StructType(Seq(StructField("c1", StringType)))
 
         DataSource.lookupDataSourceV2(format, spark.sessionState.conf) match {
