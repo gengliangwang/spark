@@ -238,9 +238,16 @@ abstract class PushVariantIntoScanV2SuiteBase extends QueryTest with PushVariant
   protected def vectorizedReaderEnabled: Boolean
   protected def readerName: String
 
+  // These tests assert on the V2 `ParquetScan` path's variant pushdown internals (e.g. the
+  // `$.__placeholder_field__` struct produced for a variant used only in a null check). The Parquet
+  // FileScan connector is a separate implementation that lowers to the V1 file-source path and does
+  // not push a variant that is requested only in full, so disable it here to exercise the
+  // `ParquetScan` path these tests target (the connector's own variant pushdown is covered by
+  // VariantSuite, ParquetVariantShreddingSuite, etc.).
   override def sparkConf: SparkConf =
-    super.sparkConf.set(SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key,
-      vectorizedReaderEnabled.toString)
+    super.sparkConf
+      .set(SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key, vectorizedReaderEnabled.toString)
+      .set(SQLConf.PARQUET_FILE_SCAN_CONNECTOR_ENABLED.key, "false")
 
   test(s"V2 test - basic variant field extraction ($readerName)") {
     withTempPath { dir =>

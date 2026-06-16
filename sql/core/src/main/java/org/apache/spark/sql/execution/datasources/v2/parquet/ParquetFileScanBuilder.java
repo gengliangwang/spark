@@ -93,11 +93,18 @@ public class ParquetFileScanBuilder
 
   @Override
   public boolean[] pushVariantExtractions(VariantExtraction[] extractions) {
-    // Parquet supports all variant extractions: the request is encoded as VariantMetadata on the
-    // read schema and lowered to the V1 parquet reader, which shreds the variant.
-    this.variantExtractions = extractions;
-    boolean[] accepted = new boolean[extractions.length];
-    java.util.Arrays.fill(accepted, true);
+    // Accept genuine sub-field extractions (encoded as VariantMetadata on the read schema and
+    // lowered to the V1 parquet reader, which shreds the variant) but decline full-variant
+    // requests; see ParquetVariantSchemaRewrite.acceptExtractions for why. Store only the accepted
+    // extractions so the rewritten read schema matches the rule's rewritten scan output.
+    boolean[] accepted = ParquetVariantSchemaRewrite.acceptExtractions(extractions);
+    java.util.List<VariantExtraction> acceptedList = new java.util.ArrayList<>();
+    for (int i = 0; i < extractions.length; i++) {
+      if (accepted[i]) {
+        acceptedList.add(extractions[i]);
+      }
+    }
+    this.variantExtractions = acceptedList.toArray(new VariantExtraction[0]);
     return accepted;
   }
 
