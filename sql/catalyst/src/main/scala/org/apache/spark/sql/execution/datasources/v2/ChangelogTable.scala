@@ -17,23 +17,25 @@
 
 package org.apache.spark.sql.execution.datasources.v2
 
-import java.util.{EnumSet => JEnumSet, Set => JSet}
+import java.util.{Map => JMap, Set => JSet}
 
-import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogContext, Column, SupportsRead, Table, TableCapability}
-import org.apache.spark.sql.connector.catalog.TableCapability.{BATCH_READ, MICRO_BATCH_READ}
+import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogContext, Column, SupportsChangelog, SupportsRead, Table, TableCapability}
+import org.apache.spark.sql.connector.catalog.constraints.Constraint
+import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.connector.read.ScanBuilder
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.types.{DataType, LongType, StringType, TimestampType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 /**
- * An internal wrapper that adapts a connector's [[Changelog]] into a DSv2 [[Table]] with
- * [[SupportsRead]], enabling reuse of [[DataSourceV2Relation]] without logical plan changes.
+ * An internal wrapper that retains the base table and context used to derive a [[Changelog]].
+ * This lets metadata refresh reload the base table before deriving the changelog again.
  *
  * This class is NOT part of the connector API. Connectors implement [[Changelog]]; Spark
  * wraps it in [[ChangelogTable]] during analysis.
  */
 case class ChangelogTable(
+    baseTable: Table,
     changelog: Changelog,
     changelogContext: ChangelogContext,
     resolved: Boolean = false) extends Table with SupportsRead {
@@ -42,18 +44,95 @@ case class ChangelogTable(
   // and correct types.
   ChangelogTable.validateSchema(changelog)
 
+  private val postProcessingMetadata = ChangelogTable.capturePostProcessingMetadata(changelog)
+
   override def name: String = changelog.name
 
+  override def id: String = baseTable.id
+
+  override def version: String = baseTable.version
+
   override def columns: Array[Column] = changelog.columns
+
+  override def partitioning: Array[Transform] = changelog.partitioning
+
+  override def properties: JMap[String, String] = changelog.properties
+
+  override def constraints: Array[Constraint] = changelog.constraints
 
   override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
     changelog.newScanBuilder(options)
   }
 
-  override def capabilities: JSet[TableCapability] = JEnumSet.of(BATCH_READ, MICRO_BATCH_READ)
+  override def capabilities: JSet[TableCapability] = changelog.capabilities
+
+  // Deriving a new Changelog does not change the read selected by the base state and context.
+  override def equals(other: Any): Boolean = other match {
+    case that: ChangelogTable =>
+      that.canEqual(this) && baseTable == that.baseTable &&
+        changelogContext == that.changelogContext && resolved == that.resolved
+    case _ => false
+  }
+
+  override def hashCode(): Int = (baseTable, changelogContext, resolved).hashCode()
+
+  /** Checks that refreshing the changelog preserves the already analyzed CDC rewrites. */
+  def validateRefresh(current: ChangelogTable): Unit = {
+    val errors = postProcessingMetadata.changes(current.postProcessingMetadata)
+    if (errors.nonEmpty) {
+      throw QueryCompilationErrors.changelogChangedAfterAnalysis(baseTable.name, errors)
+    }
+  }
 }
 
 object ChangelogTable {
+
+  def create(baseTable: Table, context: ChangelogContext): ChangelogTable = {
+    val changelog = baseTable match {
+      case table: SupportsChangelog => table.newChangelog(context)
+      case _ => throw QueryCompilationErrors.cdcUnsupportedOnRelationError(baseTable.name)
+    }
+    ChangelogTable(baseTable, changelog, context)
+  }
+
+  private case class PostProcessingMetadata(
+      containsCarryoverRows: Boolean,
+      containsIntermediateChanges: Boolean,
+      representsUpdateAsDeleteAndInsert: Boolean,
+      rowId: Seq[Seq[String]],
+      rowVersion: Option[Seq[String]]) {
+
+    def changes(current: PostProcessingMetadata): Seq[String] = {
+      Seq(
+        "containsCarryoverRows" -> (containsCarryoverRows != current.containsCarryoverRows),
+        "containsIntermediateChanges" ->
+          (containsIntermediateChanges != current.containsIntermediateChanges),
+        "representsUpdateAsDeleteAndInsert" ->
+          (representsUpdateAsDeleteAndInsert != current.representsUpdateAsDeleteAndInsert),
+        "rowId" -> (rowId != current.rowId),
+        "rowVersion" -> (rowVersion != current.rowVersion)).collect {
+        case (name, true) => s"$name changed"
+      }
+    }
+  }
+
+  private def capturePostProcessingMetadata(cl: Changelog): PostProcessingMetadata = {
+    val carryovers = cl.containsCarryoverRows()
+    val intermediateChanges = cl.containsIntermediateChanges()
+    val updatesAsDeleteAndInsert = cl.representsUpdateAsDeleteAndInsert()
+    val rowId = if (carryovers || intermediateChanges || updatesAsDeleteAndInsert) {
+      cl.rowId().toVector.map(_.fieldNames().toVector)
+    } else {
+      Seq.empty
+    }
+    val rowVersion = if (carryovers || updatesAsDeleteAndInsert) {
+      Some(cl.rowVersion().fieldNames().toVector)
+    } else {
+      None
+    }
+    PostProcessingMetadata(
+      carryovers, intermediateChanges, updatesAsDeleteAndInsert, rowId, rowVersion)
+  }
 
   private[v2] def validateSchema(cl: Changelog): Unit = {
     val byName = cl.columns.map(c => c.name -> c).toMap

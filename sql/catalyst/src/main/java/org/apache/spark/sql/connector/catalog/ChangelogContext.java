@@ -20,13 +20,10 @@ package org.apache.spark.sql.connector.catalog;
 import java.util.Objects;
 
 import org.apache.spark.annotation.Evolving;
-import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 /**
  * Encapsulates the parameters of a Change Data Capture (CDC) query, passed from the
- * parser / DataFrame API to the catalog's
- * {@link TableCatalog#loadChangelog(Identifier, ChangelogContext, CaseInsensitiveStringMap)}
- * method.
+ * parser / DataFrame API to {@link SupportsChangelog#newChangelog(ChangelogContext)}.
  *
  * @since 4.2.0
  */

@@ -37,6 +37,7 @@ import org.apache.spark.sql.connector.catalog.{
   LookupCatalog,
   Relation,
   RelationCatalog,
+  SupportsChangelog,
   Table,
   TableCatalog,
   V1Table,
@@ -376,28 +377,42 @@ class RelationResolution(
   }
 
   /**
-   * Resolve a CDC (CHANGES) query: look up the catalog, call loadChangelog(), wrap in
-   * ChangelogTable, and return a DataSourceV2Relation.
+   * Resolve a CDC (CHANGES) query using the same pinned base table as ordinary reads.
+   * Each changelog keeps its own context and scan options while sharing the loaded table state.
    */
   def resolveChangelog(u: UnresolvedRelation, ctx: ChangelogContext): Option[LogicalPlan] = {
     expandIdentifier(u.multipartIdentifier) match {
       case CatalogAndIdentifier(catalog, ident) =>
-        val tableCatalog = catalog.asTableCatalog
-        val changelog = try {
-          tableCatalog.loadChangelog(ident, ctx, u.options)
-        } catch {
-          case _: UnsupportedOperationException =>
-            throw QueryCompilationErrors.cdcNotSupportedError(tableCatalog.name())
+        val tableKey = toTableCacheKey(catalog, ident, None, u.options)
+        val baseTable = tableCache.get(tableKey).orElse {
+          CatalogV2Util.loadTableWithStateOptions(
+            catalog, ident, tableKey.stateOptions).map { loaded =>
+            val cached = if (u.isStreaming) {
+              None
+            } else {
+              lookupSharedRelationCache(catalog, ident, loaded, tableKey.stateOptions)
+            }
+            val pinned = cached.map(_.table).getOrElse(loaded)
+            tableCache.update(tableKey, pinned)
+            pinned
+          }
         }
-        val changelogTable = ChangelogTable(changelog, ctx)
-        val relation = if (u.isStreaming) {
-          StreamingRelationV2(
-            None, changelogTable.name, changelogTable, u.options,
-            changelogTable.columns.toOutputAttributes, Some(catalog), Some(ident), None)
-        } else {
-          DataSourceV2Relation.create(changelogTable, Some(catalog), Some(ident), u.options)
+        baseTable.map { table =>
+          if (!table.isInstanceOf[SupportsChangelog]) {
+            throw QueryCompilationErrors.cdcUnsupportedOnRelationError(
+              toSQLId(ident.toQualifiedNameParts(catalog)))
+          }
+          val changelogTable = ChangelogTable.create(table, ctx)
+          val relation = if (u.isStreaming) {
+            StreamingRelationV2(
+              None, changelogTable.name, changelogTable, u.options,
+              changelogTable.columns.toOutputAttributes, Some(catalog), Some(ident), None)
+          } else {
+            DataSourceV2Relation.create(changelogTable, Some(catalog), Some(ident), u.options)
+          }
+          val aliased = SubqueryAlias(catalog.name +: ident.asMultipartIdentifier, relation)
+          cloneWithPlanId(aliased, u.getTagValue(LogicalPlan.PLAN_ID_TAG))
         }
-        Some(SubqueryAlias(catalog.name +: ident.asMultipartIdentifier, relation))
       case _ => None
     }
   }

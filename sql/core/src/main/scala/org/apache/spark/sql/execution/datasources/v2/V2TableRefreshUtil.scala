@@ -23,7 +23,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.SQLConfHelper
 import org.apache.spark.sql.catalyst.plans.logical.{Command, LogicalPlan}
 import org.apache.spark.sql.classic.SparkSession
-import org.apache.spark.sql.connector.catalog.{Identifier, Table, TableCatalog, V2TableUtil}
+import org.apache.spark.sql.connector.catalog.{ChangelogContext, Identifier, Table, TableCatalog, V2TableUtil}
 import org.apache.spark.sql.connector.catalog.CatalogV2Util
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -84,14 +84,23 @@ private[sql] object V2TableRefreshUtil extends SQLConfHelper with Logging {
       plan: LogicalPlan,
       versionedOnly: Boolean,
       schemaValidationMode: SchemaValidationMode): LogicalPlan = {
+    // Ordinary reads and changelog reads share one base table state. Changelogs additionally
+    // depend on their context, so derive them separately from the refreshed base table.
     val currentTables = mutable.HashMap.empty[CurrentTableKey, Table]
+    val currentChangelogs =
+      mutable.HashMap.empty[(CurrentTableKey, ChangelogContext), ChangelogTable]
     plan transformWithSubqueries {
       case r @ ExtractV2CatalogAndIdentifier(catalog, ident)
           if (r.isVersioned || !versionedOnly) && r.timeTravelSpec.isEmpty =>
         val stateOptions = CatalogV2Util.extractTableStateOptions(catalog, r.options)
-        val currentTable = currentTables.getOrElseUpdate((catalog, ident, stateOptions), {
+        val tableKey = (catalog, ident, stateOptions)
+        val capturedBaseTable = r.table match {
+          case changelog: ChangelogTable => changelog.baseTable
+          case table => table
+        }
+        val currentBaseTable = currentTables.getOrElseUpdate(tableKey, {
           val tableName = V2TableUtil.toQualifiedName(catalog, ident)
-          lookupCachedRelation(spark, catalog, ident, r.table, stateOptions) match {
+          lookupCachedRelation(spark, catalog, ident, capturedBaseTable, stateOptions) match {
             case Some(cached) =>
               logDebug(s"Refreshing table metadata for $tableName using shared relation cache")
               cached.table
@@ -100,7 +109,16 @@ private[sql] object V2TableRefreshUtil extends SQLConfHelper with Logging {
               CatalogV2Util.getTableWithStateOptions(catalog, ident, stateOptions)
           }
         })
-        validateTableIdentity(currentTable, r)
+        validateTableIdentity(currentBaseTable, r)
+        val currentTable = r.table match {
+          case captured: ChangelogTable =>
+            val key = (tableKey, captured.changelogContext)
+            val current = currentChangelogs.getOrElseUpdate(key,
+              ChangelogTable.create(currentBaseTable, captured.changelogContext))
+            captured.validateRefresh(current)
+            current.copy(resolved = captured.resolved)
+          case _ => currentBaseTable
+        }
         validateDataColumns(currentTable, r, schemaValidationMode)
         validateMetadataColumns(currentTable, r, schemaValidationMode)
         val refreshed = r.copy(table = currentTable)

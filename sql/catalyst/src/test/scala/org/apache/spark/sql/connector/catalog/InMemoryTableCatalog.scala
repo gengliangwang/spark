@@ -54,8 +54,6 @@ class BasicInMemoryTableCatalog extends TableCatalog {
   // loadTable(), in call order, so tests can verify that the analyzer / DataFrame API correctly
   // constructed and forwarded them -- including how many times loadTable was called when the same
   // table is referenced more than once in a statement with different options.
-  // "loadTable" is in the name because the subclass InMemoryChangelogCatalog has an analogous
-  // `lastOptions` recording the options passed to loadChangelog(); the two must not collide.
   private val _loadTableCalls = mutable.ArrayBuffer.empty[(TableContext, CaseInsensitiveStringMap)]
   def loadTableCalls: Seq[(TableContext, CaseInsensitiveStringMap)] = _loadTableCalls.toSeq
   def resetLoadTableCalls(): Unit = _loadTableCalls.clear()

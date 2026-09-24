@@ -499,8 +499,8 @@ abstract class DataFrameReader {
 
   /**
    * Returns the row-level changes (Change Data Capture) from the specified table as a
-   * `DataFrame`. Currently this API is only supported for Data Source V2 tables whose catalog
-   * implements `TableCatalog.loadChangelog()`.
+   * `DataFrame`. Currently this API is only supported for Data Source V2 tables that implement
+   * `SupportsChangelog`.
    *
    * Use `.option()` to specify the version/timestamp range and processing options:
    * {{{

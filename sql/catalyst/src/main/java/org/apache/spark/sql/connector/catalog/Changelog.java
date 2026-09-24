@@ -19,8 +19,6 @@ package org.apache.spark.sql.connector.catalog;
 
 import org.apache.spark.annotation.Evolving;
 import org.apache.spark.sql.connector.expressions.NamedReference;
-import org.apache.spark.sql.connector.read.ScanBuilder;
-import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 
 /**
  * The central connector interface for Change Data Capture (CDC).
@@ -108,7 +106,7 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap;
  * @since 4.2.0
  */
 @Evolving
-public interface Changelog {
+public interface Changelog extends SupportsRead {
 
   /** Constant for the {@code _change_type} value of a row inserted into the table. */
   String CHANGE_TYPE_INSERT = "insert";
@@ -119,14 +117,12 @@ public interface Changelog {
   /** Constant for the {@code _change_type} value of an update's post-image row. */
   String CHANGE_TYPE_UPDATE_POSTIMAGE = "update_postimage";
 
-  /** A name to identify this changelog. */
-  String name();
-
   /**
    * Returns the columns of this changelog, including data columns and the required
    * metadata columns ({@code _change_type}, {@code _commit_version},
    * {@code _commit_timestamp}).
    */
+  @Override
   Column[] columns();
 
   /**
@@ -165,13 +161,6 @@ public interface Changelog {
    * present in the raw change data.
    */
   boolean representsUpdateAsDeleteAndInsert();
-
-  /**
-   * Returns a new {@link ScanBuilder} for reading the change data.
-   *
-   * @param options read options (case-insensitive string map)
-   */
-  ScanBuilder newScanBuilder(CaseInsensitiveStringMap options);
 
   /**
    * Returns the columns that uniquely identify a row, used for carry-over removal, update

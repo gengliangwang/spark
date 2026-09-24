@@ -114,6 +114,9 @@ public interface TableCatalog extends CatalogPlugin {
    * only the declared options to {@code loadTable}. The complete user option map remains on each
    * resolved relation for subsequent scan and write planning.
    * <p>
+   * These options also select the base state for {@link SupportsChangelog#newChangelog}. Changelog
+   * ranges and post-processing parameters are provided through {@link ChangelogContext} instead.
+   * <p>
    * The default implementation returns an empty set, treating all options as unable to select a
    * different table state. Option key matching is case-insensitive, while option values remain
    * case-sensitive.
@@ -260,29 +263,6 @@ public interface TableCatalog extends CatalogPlugin {
     } else {
       return loadTable(ident);
     }
-  }
-
-  /**
-   * Load a {@link Changelog} for the given table, representing the row-level changes within the
-   * range specified by {@code context}.
-   * <p>
-   * The default implementation throws an analysis exception indicating that the catalog does
-   * not support CDC. Catalogs that support CDC must override this method.
-   *
-   * @param ident a table identifier
-   * @param context the CDC query context (range, deduplication mode, etc.)
-   * @param options all options passed to the changelog query, including the CDC-recognized
-   *                keys (range, deduplication mode, etc.) that are also parsed into {@code context}
-   * @return a Changelog instance for the requested table and range
-   * @throws NoSuchTableException If the table doesn't exist
-   *
-   * @since 4.2.0
-   */
-  default Changelog loadChangelog(
-      Identifier ident,
-      ChangelogContext context,
-      CaseInsensitiveStringMap options) throws NoSuchTableException {
-    throw new UnsupportedOperationException(name() + " does not support Change Data Capture (CDC)");
   }
 
   /**

@@ -17,20 +17,23 @@
 
 package org.apache.spark.sql.connector.catalog
 
+import java.util
+
 import scala.collection.mutable
 
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.analysis.NoSuchTableException
-import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 import org.apache.spark.sql.connector.catalog.ChangelogRange.{TimestampRange, UnboundedRange, VersionRange}
-import org.apache.spark.sql.connector.expressions.{FieldReference, NamedReference}
+import org.apache.spark.sql.connector.catalog.TableCapability.{BATCH_READ, MICRO_BATCH_READ}
+import org.apache.spark.sql.connector.catalog.constraints.Constraint
+import org.apache.spark.sql.connector.expressions.{FieldReference, NamedReference, Transform}
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.connector.read.streaming.{MicroBatchStream, Offset}
+import org.apache.spark.sql.connector.write.{LogicalWriteInfo, WriteBuilder}
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 /**
- * An [[InMemoryTableCatalog]] that implements [[TableCatalog.loadChangelog()]].
+ * An [[InMemoryTableCatalog]] whose loaded tables implement [[SupportsChangelog]].
  *
  * Change rows can be pre-populated via [[addChangeRows()]] before querying.
  */
@@ -40,13 +43,15 @@ class InMemoryChangelogCatalog extends InMemoryCatalog {
   private val changeData: mutable.Map[String, mutable.ArrayBuffer[InternalRow]] =
     mutable.Map.empty
 
-  // Stores the most recent ChangelogContext and options passed to loadChangelog(), so tests
-  // can verify that the parser/DataFrame API correctly constructed and forwarded them.
+  // Records the derived changelog's context and scan options independently of base-table loads.
   private var _lastChangelogContext: Option[ChangelogContext] = None
   def lastChangelogContext: Option[ChangelogContext] = _lastChangelogContext
 
-  private var _lastOptions: Option[CaseInsensitiveStringMap] = None
-  def lastOptions: Option[CaseInsensitiveStringMap] = _lastOptions
+  private var _lastScanOptions: Option[CaseInsensitiveStringMap] = None
+  def lastScanOptions: Option[CaseInsensitiveStringMap] = _lastScanOptions
+
+  // CDC metadata changes must invalidate captured base handles in the shared relation cache.
+  private val changelogVersions: mutable.Map[String, Long] = mutable.Map.empty
 
   // Per-table overrides for Changelog properties (carry-over rows, intermediate changes,
   // update representation, row identity). Tests can set these to exercise post-processing.
@@ -62,27 +67,75 @@ class InMemoryChangelogCatalog extends InMemoryCatalog {
       ident: Identifier,
       properties: ChangelogProperties): Unit = {
     changelogProperties(ident.toString) = properties
+    advanceChangelogVersion(ident)
   }
 
-  override def loadChangelog(
+  override def loadTable(
       ident: Identifier,
-      changelogContext: ChangelogContext,
-      options: CaseInsensitiveStringMap): Changelog = {
-    _lastChangelogContext = Some(changelogContext)
-    _lastOptions = Some(options)
-    if (!tableExists(ident)) {
-      throw new NoSuchTableException(ident.asMultipartIdentifier)
+      context: TableContext,
+      stateOptions: CaseInsensitiveStringMap): Table = {
+    val table = super.loadTable(ident, context, stateOptions).asInstanceOf[InMemoryTable]
+    val snapshot = table.copy().asInstanceOf[InMemoryTable]
+    val live = liveTable(ident).asInstanceOf[SupportsWrite]
+    val allRows = changeData.getOrElseUpdate(ident.toString, mutable.ArrayBuffer.empty)
+    def currentRows: Seq[InternalRow] = allRows.synchronized {
+      allRows.iterator.map(_.copy()).toVector
     }
-    val table = loadTable(ident)
-    val allRows = changeData.getOrElse(
-      ident.toString, mutable.ArrayBuffer.empty)
-    val numDataCols = table.columns.length
-    // _commit_version is at index numDataCols + 1 (after _change_type)
-    val commitVersionIdx = numDataCols + 1
-    val filtered = filterByRange(allRows.toSeq, commitVersionIdx, changelogContext.range())
+    val capturedRows = currentRows
     val props = changelogProperties.getOrElse(ident.toString, ChangelogProperties())
-    new InMemoryChangelog(
-      table.name + "_changelog", table.columns, filtered, props)
+    val capturedVersion =
+      s"${snapshot.version()}:${changelogVersions.getOrElse(ident.toString, 0L)}"
+
+    new SupportsRead with SupportsWrite with SupportsChangelog with SupportsMetadataColumns {
+      override def name(): String = snapshot.name
+      override def id(): String = snapshot.id
+      override def version(): String = capturedVersion
+      override def columns(): Array[Column] = snapshot.columns()
+      override def partitioning(): Array[Transform] = snapshot.partitioning
+      override def properties(): util.Map[String, String] = snapshot.properties
+      override def constraints(): Array[Constraint] = snapshot.constraints
+      override def capabilities(): util.Set[TableCapability] = snapshot.capabilities()
+      override def metadataColumns(): Array[MetadataColumn] = snapshot.metadataColumns
+      override def canRenameConflictingMetadataColumns(): Boolean =
+        snapshot.canRenameConflictingMetadataColumns
+
+      override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
+        snapshot.newScanBuilder(options)
+      }
+
+      override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
+        live.newWriteBuilder(info)
+      }
+
+      override def newChangelog(changelogContext: ChangelogContext): Changelog = {
+        _lastChangelogContext = Some(changelogContext)
+        // _commit_version follows the data columns and _change_type.
+        val commitVersionIdx = snapshot.columns().length + 1
+        val range = changelogContext.range()
+        new InMemoryChangelog(
+          snapshot.name + "_changelog",
+          snapshot.columns(),
+          filterByRange(capturedRows, commitVersionIdx, range),
+          props,
+          Some(() => filterByRange(currentRows, commitVersionIdx, range)),
+          options => _lastScanOptions = Some(options))
+      }
+    }
+  }
+
+  override def dropTable(ident: Identifier): Boolean = {
+    val dropped = super.dropTable(ident)
+    if (dropped) {
+      changeData.remove(ident.toString)
+      changelogProperties.remove(ident.toString)
+      changelogVersions.remove(ident.toString)
+    }
+    dropped
+  }
+
+  private def advanceChangelogVersion(ident: Identifier): Unit = {
+    val key = ident.toString
+    changelogVersions(key) = changelogVersions.getOrElse(key, 0L) + 1
   }
 
   /**
@@ -124,11 +177,15 @@ class InMemoryChangelogCatalog extends InMemoryCatalog {
   def addChangeRows(ident: Identifier, rows: Seq[InternalRow]): Unit = {
     val buf = changeData.getOrElseUpdate(
       ident.toString, mutable.ArrayBuffer.empty)
-    buf ++= rows
+    buf.synchronized {
+      buf ++= rows
+    }
+    advanceChangelogVersion(ident)
   }
 
   def clearChangeRows(ident: Identifier): Unit = {
     changeData.remove(ident.toString)
+    advanceChangelogVersion(ident)
   }
 }
 
@@ -172,40 +229,51 @@ class InMemoryChangelog(
     tableName: String,
     dataColumns: Array[Column],
     changeRows: Seq[InternalRow],
-    properties: ChangelogProperties = ChangelogProperties()) extends Changelog {
+    changelogProperties: ChangelogProperties = ChangelogProperties(),
+    streamingRows: Option[() => Seq[InternalRow]] = None,
+    onScan: CaseInsensitiveStringMap => Unit = _ => ()) extends Changelog {
 
   private val cdcColumns: Array[Column] = dataColumns ++ Array(
     Column.create("_change_type", StringType),
     Column.create("_commit_version", LongType),
-    Column.create("_commit_timestamp", TimestampType, properties.commitTimestampNullable))
+    Column.create("_commit_timestamp", TimestampType, changelogProperties.commitTimestampNullable))
 
   override def name(): String = tableName
 
   override def columns(): Array[Column] = cdcColumns
 
-  override def containsCarryoverRows(): Boolean = properties.containsCarryoverRows
+  override def capabilities(): util.Set[TableCapability] = {
+    util.EnumSet.of(BATCH_READ, MICRO_BATCH_READ)
+  }
 
-  override def containsIntermediateChanges(): Boolean = properties.containsIntermediateChanges
+  override def containsCarryoverRows(): Boolean = changelogProperties.containsCarryoverRows
+
+  override def containsIntermediateChanges(): Boolean =
+    changelogProperties.containsIntermediateChanges
 
   override def representsUpdateAsDeleteAndInsert(): Boolean =
-    properties.representsUpdateAsDeleteAndInsert
+    changelogProperties.representsUpdateAsDeleteAndInsert
 
   override def rowId(): Array[NamedReference] = {
-    if (properties.rowIdPaths.nonEmpty) {
-      properties.rowIdPaths.map(parts => FieldReference(parts): NamedReference).toArray
+    if (changelogProperties.rowIdPaths.nonEmpty) {
+      changelogProperties.rowIdPaths.map(parts => FieldReference(parts): NamedReference).toArray
     } else {
-      properties.rowIdNames.map(name => FieldReference.column(name): NamedReference).toArray
+      changelogProperties.rowIdNames.map { name =>
+        FieldReference.column(name): NamedReference
+      }.toArray
     }
   }
 
-  override def rowVersion(): NamedReference = properties.rowVersionName match {
+  override def rowVersion(): NamedReference = changelogProperties.rowVersionName match {
     case Some(name) => FieldReference.column(name)
     case None => super.rowVersion()
   }
 
   override def newScanBuilder(
       options: CaseInsensitiveStringMap): ScanBuilder = {
-    new InMemoryChangelogScanBuilder(readSchema, changeRows)
+    onScan(options)
+    new InMemoryChangelogScanBuilder(
+      readSchema, changeRows, streamingRows.getOrElse(() => changeRows))
   }
 
   def readSchema: StructType = {
@@ -215,21 +283,23 @@ class InMemoryChangelog(
 
 private class InMemoryChangelogScanBuilder(
     schema: StructType,
-    rows: Seq[InternalRow]) extends ScanBuilder {
+    rows: Seq[InternalRow],
+    streamingRows: () => Seq[InternalRow]) extends ScanBuilder {
   override def build(): Scan =
-    new InMemoryChangelogScan(schema, rows)
+    new InMemoryChangelogScan(schema, rows, streamingRows)
 }
 
 private class InMemoryChangelogScan(
     schema: StructType,
-    rows: Seq[InternalRow]) extends Scan with Batch {
+    rows: Seq[InternalRow],
+    streamingRows: () => Seq[InternalRow]) extends Scan with Batch {
 
   override def readSchema(): StructType = schema
 
   override def toBatch: Batch = this
 
   override def toMicroBatchStream(checkpointLocation: String): MicroBatchStream = {
-    new InMemoryChangelogMicroBatchStream(schema, rows)
+    new InMemoryChangelogMicroBatchStream(schema, streamingRows)
   }
 
   override def planInputPartitions(): Array[InputPartition] = {
@@ -279,20 +349,20 @@ private class InMemoryChangelogOffset(val offset: Long) extends Offset {
 }
 
 /**
- * A [[MicroBatchStream]] that serves pre-populated change rows in a single batch.
+ * A [[MicroBatchStream]] that also discovers rows appended after the base table was loaded.
  */
 private class InMemoryChangelogMicroBatchStream(
     schema: StructType,
-    rows: Seq[InternalRow]) extends MicroBatchStream {
+    rows: () => Seq[InternalRow]) extends MicroBatchStream {
 
   override def initialOffset(): Offset = new InMemoryChangelogOffset(-1)
 
-  override def latestOffset(): Offset = new InMemoryChangelogOffset(rows.size - 1)
+  override def latestOffset(): Offset = new InMemoryChangelogOffset(rows().size - 1)
 
   override def planInputPartitions(start: Offset, end: Offset): Array[InputPartition] = {
     val startIdx = start.asInstanceOf[InMemoryChangelogOffset].offset.toInt + 1
     val endIdx = end.asInstanceOf[InMemoryChangelogOffset].offset.toInt + 1
-    val slice = rows.slice(startIdx, endIdx)
+    val slice = rows().slice(startIdx, endIdx)
     Array(InMemoryChangelogPartition(slice))
   }
 
