@@ -29,7 +29,6 @@ import org.apache.spark.sql.connector.catalog.Changelog.{
   CHANGE_TYPE_DELETE, CHANGE_TYPE_INSERT, CHANGE_TYPE_UPDATE_POSTIMAGE,
   CHANGE_TYPE_UPDATE_PREIMAGE}
 import org.apache.spark.sql.connector.expressions.Transform
-import org.apache.spark.sql.execution.datasources.v2.ChangelogTable
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{
   BinaryType, BooleanType, DoubleType, LongType, StringType, StructField, StructType}
@@ -355,12 +354,12 @@ class ResolveChangelogTablePostProcessingSuite extends SharedSparkSession {
     // Positive assertion: the rule actually fired on the streaming relation. Without this,
     // a regression that deletes the streaming arm of `ResolveChangelogTable.apply` would
     // also pass the absence-of-helpers check above.
-    val tableResolved = analyzed.collectFirst {
-      case rel: StreamingRelationV2 if rel.table.isInstanceOf[ChangelogTable] =>
-        rel.table.asInstanceOf[ChangelogTable].resolved
+    val changelogResolved = analyzed.collectFirst {
+      case rel: StreamingRelationV2 if rel.changelogInfo.nonEmpty =>
+        rel.changelogInfo.get.resolved
     }
-    assert(tableResolved.contains(true),
-      s"Expected ChangelogTable to be marked resolved by the rule. Plan:\n$plan")
+    assert(changelogResolved.contains(true),
+      s"Expected the changelog read to be marked resolved by the rule. Plan:\n$plan")
   }
 
   // The streaming netChanges path is covered by

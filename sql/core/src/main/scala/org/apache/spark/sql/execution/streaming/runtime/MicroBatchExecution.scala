@@ -275,7 +275,7 @@ class MicroBatchExecution(
         })
 
       case s @ StreamingRelationV2(src, srcName, table: SupportsRead, options, output,
-        catalog, identifier, v1, sourceIdentifyingName) =>
+        catalog, identifier, v1, sourceIdentifyingName, changelogInfo) =>
         val dsStr = if (src.nonEmpty) s"[${src.get}]" else ""
         val v2Disabled = disabledSources.contains(src.getOrElse(None).getClass.getCanonicalName)
         if (!v2Disabled && table.supports(TableCapability.MICRO_BATCH_READ)) {
@@ -308,7 +308,8 @@ class MicroBatchExecution(
                   case RealTimeTrigger(duration) => Some(duration)
                   case _ => None
                 },
-                sourceIdentifyingName
+                sourceIdentifyingName,
+                changelogInfo
               )
             StreamingDataSourceV2ScanRelation(relation, scan, output, stream)
           })

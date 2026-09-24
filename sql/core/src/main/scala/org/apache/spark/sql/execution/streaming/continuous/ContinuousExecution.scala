@@ -80,7 +80,7 @@ class ContinuousExecution(
     import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Implicits._
     val _logicalPlan = analyzedPlan.transform {
       case s @ StreamingRelationV2(ds, sourceName, table: SupportsRead, options, output,
-        catalog, identifier, _, _) =>
+        catalog, identifier, _, _, changelogInfo) =>
         val dsStr = if (ds.nonEmpty) s"[${ds.get}]" else ""
         if (!table.supports(TableCapability.CONTINUOUS_READ)) {
           throw QueryExecutionErrors.continuousProcessingUnsupportedByDataSourceError(sourceName)
@@ -104,7 +104,8 @@ class ContinuousExecution(
           val scan = scanBuilder.build()
           val stream = scan.toContinuousStream(metadataPath)
           val relation = StreamingDataSourceV2Relation(
-              table, output, catalog, identifier, options, metadataPath)
+              table, output, catalog, identifier, options, metadataPath,
+              changelogInfo = changelogInfo)
           StreamingDataSourceV2ScanRelation(relation, scan, output, stream)
         })
     }

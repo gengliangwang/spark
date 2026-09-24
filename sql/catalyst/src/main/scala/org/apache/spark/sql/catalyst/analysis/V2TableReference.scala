@@ -37,7 +37,7 @@ import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.catalog.TableCatalog
 import org.apache.spark.sql.connector.catalog.V2TableUtil
 import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
+import org.apache.spark.sql.execution.datasources.v2.{ChangelogReadInfo, DataSourceV2Relation}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.util.SchemaValidationMode.{ALLOW_NEW_TOP_LEVEL_FIELDS, PROHIBIT_CHANGES}
 import org.apache.spark.util.ArrayImplicits._
@@ -57,7 +57,8 @@ private[sql] case class V2TableReference private(
     options: CaseInsensitiveStringMap,
     info: TableInfo,
     output: Seq[AttributeReference],
-    context: Context)
+    context: Context,
+    changelogInfo: Option[ChangelogReadInfo] = None)
   extends LeafNode with MultiInstanceRelation with NamedRelation {
 
   override def name: String = V2TableUtil.toQualifiedName(catalog, identifier)
@@ -74,7 +75,16 @@ private[sql] case class V2TableReference private(
   }
 
   def toRelation(table: Table): DataSourceV2Relation = {
-    DataSourceV2Relation(table, output, Some(catalog), Some(identifier), options)
+    val (readTable, currentInfo) = changelogInfo match {
+      case Some(captured) =>
+        val (changelog, current) = ChangelogReadInfo.create(table, captured.context)
+        captured.validateRefresh(current)
+        (changelog, Some(current.copy(resolved = captured.resolved)))
+      case None => (table, None)
+    }
+    DataSourceV2Relation(
+      readTable, output, Some(catalog), Some(identifier), options,
+      changelogInfo = currentInfo)
   }
 }
 
@@ -131,11 +141,12 @@ private[sql] object V2TableReference {
       relation.identifier.get,
       relation.options,
       TableInfo(
-        tableId = Option(relation.table.id),
+        tableId = Option(relation.baseTable.id),
         columns = relation.table.columns.toImmutableArraySeq,
         metadataColumns = V2TableUtil.extractMetadataColumns(relation)),
       relation.output,
-      context)
+      context,
+      relation.changelogInfo)
     ref.copyTagsFrom(relation)
     ref
   }
@@ -144,19 +155,26 @@ private[sql] object V2TableReference {
 private[sql] object V2TableReferenceUtils extends SQLConfHelper {
 
   def validateLoadedTable(table: Table, ref: V2TableReference): Unit = {
+    validateLoadedTable(table, ref, table)
+  }
+
+  def validateLoadedTable(table: Table, ref: V2TableReference, baseTable: Table): Unit = {
     ref.context match {
       case ctx: TemporaryViewContext =>
         validateLoadedTableInTempView(table, ref, ctx)
       case TransactionContext | WriteTargetContext =>
-        validateNoChanges(table, ref)
+        validateNoChanges(table, ref, baseTable)
       case ctx =>
         throw SparkException.internalError(s"Unknown table ref context: ${ctx.getClass.getName}")
     }
   }
 
-  private def validateNoChanges(table: Table, ref: V2TableReference): Unit = {
+  private def validateNoChanges(
+      table: Table,
+      ref: V2TableReference,
+      baseTable: Table): Unit = {
     // Make sure the table was not dropped and recreated.
-    ref.info.tableId.foreach(V2TableUtil.validateTableId(ref.name, _, table))
+    ref.info.tableId.foreach(V2TableUtil.validateTableId(ref.name, _, baseTable))
 
     // Do not allow schema evolution to pre-analysed dataframes that are later used in
     // transactional writes. This is because the entire plans was built based on the original schema
