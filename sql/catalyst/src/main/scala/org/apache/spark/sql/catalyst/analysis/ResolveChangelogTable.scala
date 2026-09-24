@@ -37,19 +37,19 @@ import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.catalyst.streaming.StreamingRelationV2
 import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogContext}
 import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
+import org.apache.spark.sql.execution.datasources.v2.{ChangelogTable, DataSourceV2Relation}
 import org.apache.spark.sql.streaming.{OutputMode, StatefulProcessor}
 import org.apache.spark.sql.types.{BooleanType, DataType, IntegerType, MetadataBuilder, StringType, StructField, StructType}
 import org.apache.spark.unsafe.types.CalendarInterval
 
 /**
- * Post-processes a resolved [[Changelog]] read to apply CDC option semantics
+ * Post-processes a resolved [[ChangelogTable]] read to apply CDC option semantics
  * (carry-over removal, update detection, net change computation) and to enforce
  * supported option combinations.
  *
- * Fires after [[ResolveRelations]] has derived the connector's [[Changelog]] and recorded its
- * [[org.apache.spark.sql.execution.datasources.v2.ChangelogReadInfo]] on the relation. Both batch
- * ([[DataSourceV2Relation]]) and streaming ([[StreamingRelationV2]]) reads are handled:
+ * Fires after [[ResolveRelations]] has wrapped the connector's [[Changelog]] in a
+ * [[ChangelogTable]]. Both batch ([[DataSourceV2Relation]]) and streaming
+ * ([[StreamingRelationV2]]) reads are handled:
  *   - Batch: the requested post-processing passes are injected as logical operators on top
  *     of the relation. Carry-over removal and update detection are fused into a single
  *     pass over a (rowId, _commit_version)-partitioned Window: the Filter drops CoW
@@ -121,11 +121,11 @@ object ResolveChangelogTable extends Rule[LogicalPlan] {
   }
 
   override def apply(plan: LogicalPlan): LogicalPlan = plan.resolveOperatorsUp {
-    case rel @ DataSourceV2Relation(changelog: Changelog, _, _, _, _, _, Some(info))
-        if !info.resolved =>
-      val req = evaluateRequirements(changelog, info.context)
+    case rel @ DataSourceV2Relation(table: ChangelogTable, _, _, _, _, _) if !table.resolved =>
+      val changelog = table.changelog
+      val req = evaluateRequirements(changelog, table.changelogContext)
 
-      val resolvedRel = rel.copy(changelogInfo = Some(info.copy(resolved = true)))
+      val resolvedRel = rel.copy(table = table.copy(resolved = true))
       var updatedRel: LogicalPlan = resolvedRel
       if (req.requiresCarryOverRemoval || req.requiresUpdateDetection) {
         updatedRel = addRowLevelPostProcessing(
@@ -140,14 +140,15 @@ object ResolveChangelogTable extends Rule[LogicalPlan] {
         val rowIdExprs =
           V2ExpressionUtils.resolveRefs[NamedExpression](changelog.rowId().toSeq, resolvedRel)
         updatedRel = injectNetChangeComputation(
-          updatedRel, rowIdExprs, info.context.computeUpdates())
+          updatedRel, rowIdExprs, table.changelogContext.computeUpdates())
       }
       updatedRel
 
-    case rel @ StreamingRelationV2(_, _, changelog: Changelog, _, _, _, _, _, _, Some(info))
-        if !info.resolved =>
-      val req = evaluateRequirements(changelog, info.context)
-      val resolvedRel = rel.copy(changelogInfo = Some(info.copy(resolved = true)))
+    case rel @ StreamingRelationV2(_, _, table: ChangelogTable, _, _, _, _, _, _)
+        if !table.resolved =>
+      val changelog = table.changelog
+      val req = evaluateRequirements(changelog, table.changelogContext)
+      val resolvedRel = rel.copy(table = table.copy(resolved = true))
       var updatedRel: LogicalPlan = resolvedRel
       if (req.requiresCarryOverRemoval || req.requiresUpdateDetection) {
         updatedRel = addStreamingRowLevelPostProcessing(
@@ -163,7 +164,7 @@ object ResolveChangelogTable extends Rule[LogicalPlan] {
         // output, so name-based resolution against `updatedRel` recovers the right
         // attributes regardless of any preceding wrapping.
         updatedRel = addStreamingNetChangeComputation(
-          updatedRel, changelog, info.context.computeUpdates())
+          updatedRel, changelog, table.changelogContext.computeUpdates())
       }
       updatedRel
   }

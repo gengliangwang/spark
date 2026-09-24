@@ -21,7 +21,7 @@ import org.apache.spark.sql.catalyst.analysis.MultiInstanceRelation
 import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.catalyst.plans.logical.{ExposesMetadataColumns, LeafNode, LogicalPlan, Statistics}
 import org.apache.spark.sql.connector.catalog.{CatalogPlugin, Identifier, SupportsMetadataColumns, Table, TableProvider}
-import org.apache.spark.sql.execution.datasources.v2.{ChangelogReadInfo, DataSourceV2Implicits}
+import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Implicits
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 // We have to pack in the V1 data source as a shim, for the case when a source implements
@@ -40,8 +40,7 @@ case class StreamingRelationV2(
     catalog: Option[CatalogPlugin],
     identifier: Option[Identifier],
     v1Relation: Option[LogicalPlan],
-    sourceIdentifyingName: StreamingSourceIdentifyingName = Unassigned,
-    changelogInfo: Option[ChangelogReadInfo] = None)
+    sourceIdentifyingName: StreamingSourceIdentifyingName = Unassigned)
   extends LeafNode with MultiInstanceRelation with ExposesMetadataColumns
   with HasStreamingSourceIdentifyingName {
   override lazy val resolved = v1Relation.forall(_.resolved)
@@ -49,21 +48,6 @@ case class StreamingRelationV2(
   override def toString: String = sourceName
 
   import DataSourceV2Implicits._
-
-  // Keep source identity independent of the connector's derived Changelog allocation.
-  private lazy val comparisonKey =
-    (source, sourceName, changelogInfo.map(_.baseTable).getOrElse(table), extraOptions, output,
-      catalog, identifier, v1Relation, sourceIdentifyingName, changelogInfo)
-
-  private lazy val comparisonHash = comparisonKey.hashCode()
-
-  override def equals(other: Any): Boolean = other match {
-    case that: StreamingRelationV2 =>
-      that.canEqual(this) && comparisonKey == that.comparisonKey
-    case _ => false
-  }
-
-  override def hashCode(): Int = comparisonHash
 
   override lazy val metadataOutput: Seq[AttributeReference] = table match {
     case hasMeta: SupportsMetadataColumns =>
@@ -76,7 +60,8 @@ case class StreamingRelationV2(
   def withMetadataColumns(): StreamingRelationV2 = {
     val newMetadata = metadataOutput.filterNot(outputSet.contains)
     if (newMetadata.nonEmpty) {
-      copy(output = output ++ newMetadata)
+      StreamingRelationV2(source, sourceName, table, extraOptions,
+        output ++ newMetadata, catalog, identifier, v1Relation, sourceIdentifyingName)
     } else {
       this
     }

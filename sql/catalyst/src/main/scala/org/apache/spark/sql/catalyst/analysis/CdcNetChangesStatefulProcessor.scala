@@ -81,7 +81,7 @@ private[analysis] class CdcNetChangesStatefulProcessor(
   private val commitVersionIdx: Int = inputSchema.fieldIndex("_commit_version")
 
   // `_commit_version` is connector-defined and is restricted to LongType or StringType
-  // (validated in `ChangelogReadInfo.validateSchema`). We still route through Catalyst's
+  // (validated in `ChangelogTable.validateSchema`). We still route through Catalyst's
   // type-aware interpreted ordering for symmetry with the batch path's `SortOrder` on
   // the same attribute.
   private val versionDataType = inputSchema(commitVersionIdx).dataType

@@ -166,7 +166,7 @@ object ResolveWriteToStream extends Rule[LogicalPlan] {
       case StreamingRelation(
         _, _, _, sourceIdentifyingName) => sourceIdentifyingName
       case StreamingRelationV2(
-        _, _, _, _, _, _, _, _, sourceIdentifyingName, _) => sourceIdentifyingName
+        _, _, _, _, _, _, _, _, sourceIdentifyingName) => sourceIdentifyingName
     }
 
     // Extract actual name strings only from named sources (ignore Unassigned)
@@ -183,3 +183,4 @@ object ResolveWriteToStream extends Rule[LogicalPlan] {
     }
   }
 }
+

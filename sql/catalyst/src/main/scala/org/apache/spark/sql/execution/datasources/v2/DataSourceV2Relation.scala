@@ -116,29 +116,11 @@ case class DataSourceV2Relation(
     catalog: Option[CatalogPlugin],
     identifier: Option[Identifier],
     options: CaseInsensitiveStringMap,
-    timeTravelSpec: Option[TimeTravelSpec] = None,
-    changelogInfo: Option[ChangelogReadInfo] = None)
+    timeTravelSpec: Option[TimeTravelSpec] = None)
   extends DataSourceV2RelationBase(table, output, catalog, identifier, options, timeTravelSpec)
   with ExposesMetadataColumns {
 
   import DataSourceV2Implicits._
-
-  def baseTable: Table = changelogInfo.map(_.baseTable).getOrElse(table)
-
-  // Changelogs derived from the same base state and context have the same read semantics,
-  // even when the connector allocates a new Changelog for each relation.
-  private lazy val comparisonKey =
-    (baseTable, output, catalog, identifier, options, timeTravelSpec, changelogInfo)
-
-  private lazy val comparisonHash = comparisonKey.hashCode()
-
-  override def equals(other: Any): Boolean = other match {
-    case that: DataSourceV2Relation =>
-      that.canEqual(this) && comparisonKey == that.comparisonKey
-    case _ => false
-  }
-
-  override def hashCode(): Int = comparisonHash
 
   override def newInstance(): DataSourceV2Relation = {
     copy(output = output.map(_.newInstance()))
@@ -164,7 +146,7 @@ case class DataSourceV2Relation(
   def autoSchemaEvolution: Boolean =
     table.capabilities.contains(TableCapability.AUTOMATIC_SCHEMA_EVOLUTION)
 
-  def isVersioned: Boolean = baseTable.version != null
+  def isVersioned: Boolean = table.version != null
 
   override val nodePatterns: Seq[TreePattern] = Seq(DATA_SOURCE_V2_RELATION)
 }
@@ -398,23 +380,8 @@ case class StreamingDataSourceV2Relation(
     options: CaseInsensitiveStringMap,
     metadataPath: String,
     realTimeModeDuration: Option[Long] = None,
-    sourceIdentifyingName: StreamingSourceIdentifyingName = Unassigned,
-    changelogInfo: Option[ChangelogReadInfo] = None)
+    sourceIdentifyingName: StreamingSourceIdentifyingName = Unassigned)
   extends DataSourceV2RelationBase(table, output, catalog, identifier, options) {
-
-  private lazy val comparisonKey =
-    (changelogInfo.map(_.baseTable).getOrElse(table), output, catalog, identifier, options,
-      metadataPath, realTimeModeDuration, sourceIdentifyingName, changelogInfo)
-
-  private lazy val comparisonHash = comparisonKey.hashCode()
-
-  override def equals(other: Any): Boolean = other match {
-    case that: StreamingDataSourceV2Relation =>
-      that.canEqual(this) && comparisonKey == that.comparisonKey
-    case _ => false
-  }
-
-  override def hashCode(): Int = comparisonHash
 
   override def isStreaming: Boolean = true
 
@@ -475,7 +442,7 @@ object ExtractV2Table {
 object ExtractV2CatalogAndIdentifier {
   def unapply(relation: DataSourceV2Relation): Option[(TableCatalog, Identifier)] = {
     relation match {
-      case DataSourceV2Relation(_, _, Some(catalog), Some(identifier), _, _, _) =>
+      case DataSourceV2Relation(_, _, Some(catalog), Some(identifier), _, _) =>
         Some((catalog.asTableCatalog, identifier))
       case _ =>
         None
@@ -504,8 +471,7 @@ object DataSourceV2Relation {
       catalog: Option[CatalogPlugin],
       identifier: Option[Identifier],
       options: CaseInsensitiveStringMap,
-      timeTravelSpec: Option[TimeTravelSpec] = None,
-      changelogInfo: Option[ChangelogReadInfo] = None): DataSourceV2Relation = {
+      timeTravelSpec: Option[TimeTravelSpec] = None): DataSourceV2Relation = {
     import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
     // The v2 source may return schema containing char/varchar type. We replace char/varchar
     // with "annotated" string type here as the query engine doesn't support char/varchar yet.
@@ -516,8 +482,7 @@ object DataSourceV2Relation {
     val schema = removeInternalMetadata(
       CharVarcharUtils.replaceCharVarcharWithStringInSchema(table.columns.asSchema),
       keepFieldIds = true)
-    DataSourceV2Relation(
-      table, toAttributes(schema), catalog, identifier, options, timeTravelSpec, changelogInfo)
+    DataSourceV2Relation(table, toAttributes(schema), catalog, identifier, options, timeTravelSpec)
   }
 
   def create(

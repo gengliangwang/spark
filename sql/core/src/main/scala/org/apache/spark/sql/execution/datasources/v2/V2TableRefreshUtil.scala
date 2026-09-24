@@ -23,7 +23,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.SQLConfHelper
 import org.apache.spark.sql.catalyst.plans.logical.{Command, LogicalPlan}
 import org.apache.spark.sql.classic.SparkSession
-import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogContext, Identifier, Table, TableCatalog, V2TableUtil}
+import org.apache.spark.sql.connector.catalog.{ChangelogContext, Identifier, Table, TableCatalog, V2TableUtil}
 import org.apache.spark.sql.connector.catalog.CatalogV2Util
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -33,7 +33,6 @@ import org.apache.spark.sql.util.SchemaValidationMode.PROHIBIT_CHANGES
 
 private[sql] object V2TableRefreshUtil extends SQLConfHelper with Logging {
   private type CurrentTableKey = (TableCatalog, Identifier, CaseInsensitiveStringMap)
-  private type CurrentChangelogKey = (CurrentTableKey, ChangelogContext)
 
   /**
    * Refreshes table metadata for tables in the plan.
@@ -89,15 +88,19 @@ private[sql] object V2TableRefreshUtil extends SQLConfHelper with Logging {
     // depend on their context, so derive them separately from the refreshed base table.
     val currentTables = mutable.HashMap.empty[CurrentTableKey, Table]
     val currentChangelogs =
-      mutable.HashMap.empty[CurrentChangelogKey, (Changelog, ChangelogReadInfo)]
+      mutable.HashMap.empty[(CurrentTableKey, ChangelogContext), ChangelogTable]
     plan transformWithSubqueries {
       case r @ ExtractV2CatalogAndIdentifier(catalog, ident)
           if (r.isVersioned || !versionedOnly) && r.timeTravelSpec.isEmpty =>
         val stateOptions = CatalogV2Util.extractTableStateOptions(catalog, r.options)
         val tableKey = (catalog, ident, stateOptions)
+        val capturedBaseTable = r.table match {
+          case changelog: ChangelogTable => changelog.baseTable
+          case table => table
+        }
         val currentBaseTable = currentTables.getOrElseUpdate(tableKey, {
           val tableName = V2TableUtil.toQualifiedName(catalog, ident)
-          lookupCachedRelation(spark, catalog, ident, r.baseTable, stateOptions) match {
+          lookupCachedRelation(spark, catalog, ident, capturedBaseTable, stateOptions) match {
             case Some(cached) =>
               logDebug(s"Refreshing table metadata for $tableName using shared relation cache")
               cached.table
@@ -107,18 +110,18 @@ private[sql] object V2TableRefreshUtil extends SQLConfHelper with Logging {
           }
         })
         validateTableIdentity(currentBaseTable, r)
-        val (currentTable, currentInfo) = r.changelogInfo match {
-          case Some(captured) =>
-            val key = (tableKey, captured.context)
-            val (changelog, info) = currentChangelogs.getOrElseUpdate(key,
-              ChangelogReadInfo.create(currentBaseTable, captured.context))
-            captured.validateRefresh(info)
-            (changelog, Some(info.copy(resolved = captured.resolved)))
-          case None => (currentBaseTable, None)
+        val currentTable = r.table match {
+          case captured: ChangelogTable =>
+            val key = (tableKey, captured.changelogContext)
+            val current = currentChangelogs.getOrElseUpdate(key,
+              ChangelogTable.create(currentBaseTable, captured.changelogContext))
+            captured.validateRefresh(current)
+            current.copy(resolved = captured.resolved)
+          case _ => currentBaseTable
         }
         validateDataColumns(currentTable, r, schemaValidationMode)
         validateMetadataColumns(currentTable, r, schemaValidationMode)
-        val refreshed = r.copy(table = currentTable, changelogInfo = currentInfo)
+        val refreshed = r.copy(table = currentTable)
         if (schemaValidationMode == ALLOW_NEW_FIELDS) {
           AnalyzedSchemaProjection.rebindToAnalyzedSchema(refreshed)
         } else {
@@ -147,7 +150,7 @@ private[sql] object V2TableRefreshUtil extends SQLConfHelper with Logging {
   }
 
   private def validateTableIdentity(currentTable: Table, relation: DataSourceV2Relation): Unit = {
-    V2TableUtil.validateTableId(relation.name, relation.baseTable.id, currentTable)
+    V2TableUtil.validateTableId(relation.name, relation.table.id, currentTable)
   }
 
   private def validateDataColumns(

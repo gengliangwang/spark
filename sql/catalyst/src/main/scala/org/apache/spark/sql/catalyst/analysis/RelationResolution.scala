@@ -47,7 +47,7 @@ import org.apache.spark.sql.connector.catalog.{
 }
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 import org.apache.spark.sql.errors.{DataTypeErrorsBase, QueryCompilationErrors}
-import org.apache.spark.sql.execution.datasources.v2.{ChangelogReadInfo, DataSourceV2Relation}
+import org.apache.spark.sql.execution.datasources.v2.{ChangelogTable, DataSourceV2Relation}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.util.ArrayImplicits._
@@ -402,15 +402,13 @@ class RelationResolution(
             throw QueryCompilationErrors.cdcUnsupportedOnRelationError(
               toSQLId(ident.toQualifiedNameParts(catalog)))
           }
-          val (changelog, info) = ChangelogReadInfo.create(table, ctx)
+          val changelogTable = ChangelogTable.create(table, ctx)
           val relation = if (u.isStreaming) {
             StreamingRelationV2(
-              None, changelog.name, changelog, u.options,
-              changelog.columns.toOutputAttributes, Some(catalog), Some(ident), None,
-              changelogInfo = Some(info))
+              None, changelogTable.name, changelogTable, u.options,
+              changelogTable.columns.toOutputAttributes, Some(catalog), Some(ident), None)
           } else {
-            DataSourceV2Relation.create(
-              changelog, Some(catalog), Some(ident), u.options, changelogInfo = Some(info))
+            DataSourceV2Relation.create(changelogTable, Some(catalog), Some(ident), u.options)
           }
           val aliased = SubqueryAlias(catalog.name +: ident.asMultipartIdentifier, relation)
           cloneWithPlanId(aliased, u.getTagValue(LogicalPlan.PLAN_ID_TAG))
@@ -542,10 +540,7 @@ class RelationResolution(
 
   private def getOrLoadRelation(ref: V2TableReference): LogicalPlan = {
     val key = toCacheKey(ref.catalog, ref.identifier, None, ref.options)
-    // Changelog contexts are not part of the ordinary relation cache key. Reuse the base table
-    // below, but derive each changelog without publishing it as an ordinary table relation.
-    val cachedRelation = if (ref.changelogInfo.isEmpty) relationCache.get(key) else None
-    cachedRelation match {
+    relationCache.get(key) match {
       case Some(cached) =>
         adaptCachedRelation(cached, ref)
       case None =>
@@ -564,20 +559,14 @@ class RelationResolution(
             }
             sharedCacheMatch match {
               case Some(cached) =>
-                tableCache.update(tableKey, cached.baseTable)
-                if (ref.changelogInfo.isDefined) {
-                  createRelation(ref, catalog, cached.baseTable)
-                } else {
-                  adaptCachedRelation(cached, ref)
-                }
+                tableCache.update(tableKey, cached.table)
+                adaptCachedRelation(cached, ref)
               case None =>
                 tableCache.update(tableKey, table)
                 createRelation(ref, catalog, table)
             }
         }
-        if (ref.changelogInfo.isEmpty) {
-          relationCache.update(key, relation)
-        }
+        relationCache.update(key, relation)
         relation
     }
   }
@@ -604,15 +593,19 @@ class RelationResolution(
       ref: V2TableReference,
       resolvedCatalog: TableCatalog,
       table: Table): DataSourceV2Relation = {
-    val relation = ref.toRelation(table).copy(catalog = Some(resolvedCatalog))
-    V2TableReferenceUtils.validateLoadedTable(relation.table, ref, relation.baseTable)
-    relation
+    V2TableReferenceUtils.validateLoadedTable(table, ref)
+    DataSourceV2Relation(
+      table = table,
+      output = ref.output,
+      catalog = Some(resolvedCatalog),
+      identifier = Some(ref.identifier),
+      options = ref.options)
   }
 
   private def adaptCachedRelation(cached: LogicalPlan, ref: V2TableReference): LogicalPlan = {
     cached transform {
       case r: DataSourceV2Relation if matchesReference(r, ref) =>
-        V2TableReferenceUtils.validateLoadedTable(r.table, ref, r.baseTable)
+        V2TableReferenceUtils.validateLoadedTable(r.table, ref)
         r.copy(output = ref.output, options = ref.options)
     }
   }

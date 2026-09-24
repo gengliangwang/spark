@@ -17,26 +17,67 @@
 
 package org.apache.spark.sql.execution.datasources.v2
 
-import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogContext, SupportsChangelog, Table}
+import java.util.{Map => JMap, Set => JSet}
+
+import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogContext, Column, SupportsChangelog, SupportsRead, Table, TableCapability}
+import org.apache.spark.sql.connector.catalog.constraints.Constraint
+import org.apache.spark.sql.connector.expressions.Transform
+import org.apache.spark.sql.connector.read.ScanBuilder
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.types.{DataType, LongType, StringType, TimestampType}
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 /**
- * Internal information about the base table and context used to derive a [[Changelog]].
- * The relation holds the connector's changelog directly, while this descriptor lets metadata
- * refresh reload the base table before deriving the changelog again.
+ * An internal wrapper that retains the base table and context used to derive a [[Changelog]].
+ * This lets metadata refresh reload the base table before deriving the changelog again.
  *
- * This descriptor does not retain the derived changelog instance. Equivalent base states,
- * contexts, and captured metadata identify the same read regardless of connector allocations.
+ * This class is NOT part of the connector API. Connectors implement [[Changelog]]; Spark
+ * wraps it in [[ChangelogTable]] during analysis.
  */
-case class ChangelogReadInfo(
+case class ChangelogTable(
     baseTable: Table,
-    context: ChangelogContext,
-    postProcessingMetadata: ChangelogReadInfo.PostProcessingMetadata,
-    resolved: Boolean = false) {
+    changelog: Changelog,
+    changelogContext: ChangelogContext,
+    resolved: Boolean = false) extends Table with SupportsRead {
+
+  // Validate that the connector returned a schema with the required CDC metadata columns
+  // and correct types.
+  ChangelogTable.validateSchema(changelog)
+
+  private val postProcessingMetadata = ChangelogTable.capturePostProcessingMetadata(changelog)
+
+  override def name: String = changelog.name
+
+  override def id: String = baseTable.id
+
+  override def version: String = baseTable.version
+
+  override def columns: Array[Column] = changelog.columns
+
+  override def partitioning: Array[Transform] = changelog.partitioning
+
+  override def properties: JMap[String, String] = changelog.properties
+
+  override def constraints: Array[Constraint] = changelog.constraints
+
+  override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
+    changelog.newScanBuilder(options)
+  }
+
+  override def capabilities: JSet[TableCapability] = changelog.capabilities
+
+  // Deriving a new Changelog does not change the read selected by the base state and context.
+  override def equals(other: Any): Boolean = other match {
+    case that: ChangelogTable =>
+      that.canEqual(this) && baseTable == that.baseTable &&
+        changelogContext == that.changelogContext && resolved == that.resolved
+    case _ => false
+  }
+
+  override def hashCode(): Int = (baseTable, changelogContext, resolved).hashCode()
 
   /** Checks that refreshing the changelog preserves the already analyzed CDC rewrites. */
-  def validateRefresh(current: ChangelogReadInfo): Unit = {
+  def validateRefresh(current: ChangelogTable): Unit = {
     val errors = postProcessingMetadata.changes(current.postProcessingMetadata)
     if (errors.nonEmpty) {
       throw QueryCompilationErrors.changelogChangedAfterAnalysis(baseTable.name, errors)
@@ -44,25 +85,17 @@ case class ChangelogReadInfo(
   }
 }
 
-object ChangelogReadInfo {
+object ChangelogTable {
 
-  def create(baseTable: Table, context: ChangelogContext): (Changelog, ChangelogReadInfo) = {
+  def create(baseTable: Table, context: ChangelogContext): ChangelogTable = {
     val changelog = baseTable match {
       case table: SupportsChangelog => table.newChangelog(context)
       case _ => throw QueryCompilationErrors.cdcUnsupportedOnRelationError(baseTable.name)
     }
-    (changelog, fromChangelog(baseTable, changelog, context))
+    ChangelogTable(baseTable, changelog, context)
   }
 
-  def fromChangelog(
-      baseTable: Table,
-      changelog: Changelog,
-      context: ChangelogContext): ChangelogReadInfo = {
-    validateSchema(changelog)
-    ChangelogReadInfo(baseTable, context, capturePostProcessingMetadata(changelog))
-  }
-
-  case class PostProcessingMetadata(
+  private case class PostProcessingMetadata(
       containsCarryoverRows: Boolean,
       containsIntermediateChanges: Boolean,
       representsUpdateAsDeleteAndInsert: Boolean,

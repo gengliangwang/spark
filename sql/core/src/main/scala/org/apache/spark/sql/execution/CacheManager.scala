@@ -44,7 +44,7 @@ import org.apache.spark.sql.execution.datasources.{
   HadoopFsRelation,
   LogicalRelation,
   LogicalRelationWithTable}
-import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV2Relation, ExtractV2CatalogAndIdentifier, ExtractV2Table, FileTable, V2TableRefreshUtil}
+import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, ChangelogTable, DataSourceV2Relation, ExtractV2CatalogAndIdentifier, ExtractV2Table, FileTable, V2TableRefreshUtil}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.BaseRelation
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -264,7 +264,7 @@ class CacheManager extends Logging with AdaptiveSparkPlanHelper {
         isSameName(name, catalogTable.identifier.nameParts, resolver) &&
           (includeTimeTravel || !isTimeTravelRelation(relation))
 
-      case DataSourceV2Relation(_, _, Some(catalog), Some(v2Ident), _, timeTravelSpec, _) =>
+      case DataSourceV2Relation(_, _, Some(catalog), Some(v2Ident), _, timeTravelSpec) =>
         val nameInCache = v2Ident.toQualifiedNameParts(catalog)
         isSameName(name, nameInCache, resolver) && (includeTimeTravel || timeTravelSpec.isEmpty)
 
@@ -431,7 +431,7 @@ class CacheManager extends Logging with AdaptiveSparkPlanHelper {
     try {
       EliminateSubqueryAliases(plan) match {
         case r @ ExtractV2CatalogAndIdentifier(catalog, ident)
-            if r.timeTravelSpec.isEmpty && r.changelogInfo.isEmpty =>
+            if r.timeTravelSpec.isEmpty && !r.table.isInstanceOf[ChangelogTable] =>
           val table = CatalogV2Util.getTable(catalog, ident, options = r.options)
           if (r.table.id == table.id) {
             Some(DataSourceV2Relation.create(table, Some(catalog), Some(ident), r.options))
@@ -461,12 +461,13 @@ class CacheManager extends Logging with AdaptiveSparkPlanHelper {
     val cachedRelation = cachedRelations.collectFirst {
       case r: DataSourceV2Relation
           if r.catalog.contains(catalog) && r.identifier.contains(ident) &&
-            tableId.forall(_ == r.baseTable.id) &&
+            tableId.forall(_ == r.table.id) &&
             CatalogV2Util.extractTableStateOptions(catalog, r.options) == stateOptions =>
-        if (r.changelogInfo.isDefined) {
-          DataSourceV2Relation.create(r.baseTable, r.catalog, r.identifier, r.options)
-        } else {
-          r
+        r.table match {
+          case changelog: ChangelogTable =>
+            DataSourceV2Relation.create(
+              changelog.baseTable, r.catalog, r.identifier, r.options)
+          case _ => r
         }
     }
     cachedRelation.foreach { _ =>
