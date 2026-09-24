@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.connector.catalog
 
+import scala.annotation.nowarn
 import scala.collection.mutable
 
 import org.mockito.ArgumentCaptor
@@ -27,7 +28,8 @@ import org.mockito.invocation.InvocationOnMock
 import org.apache.spark.{SparkFunSuite, SparkIllegalArgumentException}
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.analysis.{
-  AsOfTimestamp, AsOfVersion, TableCacheKey, TimeTravelSpec, UnresolvedRelation}
+  AsOfTimestamp, AsOfVersion, NoSuchTableException, TableCacheKey, TimeTravelSpec,
+  UnresolvedRelation}
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types.{IntegerType, StructType}
@@ -50,6 +52,14 @@ class CatalogV2UtilSuite extends SparkFunSuite {
     when(testCatalog.tableStateOptionKeys()).thenCallRealMethod()
     when(testCatalog.loadTable(
       any[Identifier], any[TableContext], any[CaseInsensitiveStringMap])).thenCallRealMethod()
+    testCatalog
+  }
+
+  @nowarn("cat=deprecation")
+  private def mockCatalogWithRealChangelogDispatch(): TableCatalog = {
+    val testCatalog = mockCatalogWithRealDispatch()
+    when(testCatalog.loadChangelog(
+      any[Identifier], any[ChangelogContext], any[CaseInsensitiveStringMap])).thenCallRealMethod()
     testCatalog
   }
 
@@ -108,6 +118,68 @@ class CatalogV2UtilSuite extends SparkFunSuite {
       CatalogV2Util.getTable(testCatalog, ident, Some(AsOfVersion("v1")), Some("INSERT"))
     }
     assert(e.getMessage.contains("Cannot set both time travel and write privileges"))
+  }
+
+  test("default loadChangelog filters state options and derives from the current table") {
+    val testCatalog = mockCatalogWithRealChangelogDispatch()
+    when(testCatalog.tableStateOptionKeys()).thenReturn(java.util.Set.of("BrAnCh"))
+    val ident = Identifier.of(Array("ns"), "table")
+    val table = mock(classOf[SupportsChangelog])
+    val changelog = mock(classOf[Changelog])
+    when(testCatalog.loadTable(ident)).thenReturn(table)
+    when(table.newChangelog(any[ChangelogContext])).thenReturn(changelog)
+    val context = new ChangelogContext(
+      new ChangelogRange.VersionRange("10", java.util.Optional.of("20"), false, true),
+      ChangelogContext.DeduplicationMode.NET_CHANGES,
+      true)
+    val options = new CaseInsensitiveStringMap(java.util.Map.of(
+      "bRaNcH", "main", "split-size", "5", "startingVersion", "10", "versionAsOf", "99"))
+
+    @nowarn("cat=deprecation")
+    val result = testCatalog.loadChangelog(ident, context, options)
+
+    assert(result eq changelog)
+    val tableContextCaptor = ArgumentCaptor.forClass(classOf[TableContext])
+    val expectedStateOptions = new CaseInsensitiveStringMap(java.util.Map.of("branch", "main"))
+    verify(testCatalog).loadTable(
+      mockEq(ident), tableContextCaptor.capture(), mockEq(expectedStateOptions))
+    assert(tableContextCaptor.getValue.timeTravel().isEmpty)
+    assert(tableContextCaptor.getValue.writePrivileges().isEmpty)
+    verify(testCatalog).loadTable(ident)
+    val changelogContextCaptor = ArgumentCaptor.forClass(classOf[ChangelogContext])
+    verify(table).newChangelog(changelogContextCaptor.capture())
+    assert(changelogContextCaptor.getValue eq context)
+  }
+
+  test("default loadChangelog rejects a table without SupportsChangelog") {
+    val testCatalog = mockCatalogWithRealChangelogDispatch()
+    when(testCatalog.name()).thenReturn("legacy_catalog")
+    val ident = Identifier.of(Array("ns"), "table")
+    when(testCatalog.loadTable(ident)).thenReturn(mock(classOf[Table]))
+    val context = new ChangelogContext(
+      new ChangelogRange.UnboundedRange(), ChangelogContext.DeduplicationMode.NONE, false)
+
+    @nowarn("cat=deprecation")
+    val error = intercept[UnsupportedOperationException] {
+      testCatalog.loadChangelog(ident, context, CaseInsensitiveStringMap.empty())
+    }
+    assert(error.getMessage == "legacy_catalog does not support Change Data Capture (CDC)")
+    verify(testCatalog).loadTable(ident)
+  }
+
+  test("default loadChangelog propagates a missing base table") {
+    val testCatalog = mockCatalogWithRealChangelogDispatch()
+    val ident = Identifier.of(Array("ns"), "missing")
+    val missing = new NoSuchTableException(Seq("ns", "missing"))
+    when(testCatalog.loadTable(ident)).thenThrow(missing)
+    val context = new ChangelogContext(
+      new ChangelogRange.UnboundedRange(), ChangelogContext.DeduplicationMode.NONE, false)
+
+    @nowarn("cat=deprecation")
+    val error = intercept[NoSuchTableException] {
+      testCatalog.loadChangelog(ident, context, CaseInsensitiveStringMap.empty())
+    }
+    assert(error eq missing)
   }
 
   test("loadTableForV2Write forwards write privileges and only table-state options") {

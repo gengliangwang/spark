@@ -266,6 +266,44 @@ public interface TableCatalog extends CatalogPlugin {
   }
 
   /**
+   * Load a {@link Changelog} for the given table and query context.
+   * <p>
+   * The default implementation loads the current base table, passing only options declared by
+   * {@link #tableStateOptionKeys()}, and delegates to
+   * {@link SupportsChangelog#newChangelog(ChangelogContext)}. The caller must pass the complete
+   * options to {@link Changelog#newScanBuilder(CaseInsensitiveStringMap)} during scan planning.
+   * <p>
+   * This method is retained as a migration aid for direct callers. Spark resolves and refreshes
+   * changelog reads through {@link SupportsChangelog} on its already-loaded base table, so ordinary
+   * and changelog reads can share table state. Catalogs must return tables implementing that
+   * interface for Spark CDC reads; overrides of this method serve direct callers only.
+   *
+   * @param ident a table identifier
+   * @param context the CDC query context (range, deduplication mode, etc.)
+   * @param options all options passed to the changelog query, including the CDC-recognized keys
+   *                that are also parsed into {@code context}
+   * @return a changelog for the requested table and range
+   * @throws NoSuchTableException if the table does not exist
+   * @throws UnsupportedOperationException if the loaded table does not implement
+   *                                       {@link SupportsChangelog}
+   *
+   * @since 4.2.0
+   * @deprecated Use {@link SupportsChangelog#newChangelog(ChangelogContext)} on a loaded table.
+   */
+  @Deprecated(since = "5.0.0")
+  default Changelog loadChangelog(
+      Identifier ident,
+      ChangelogContext context,
+      CaseInsensitiveStringMap options) throws NoSuchTableException {
+    CaseInsensitiveStringMap stateOptions = CatalogV2Util.extractTableStateOptions(this, options);
+    Table table = loadTable(ident, new TableContext(null, Set.of()), stateOptions);
+    if (table instanceof SupportsChangelog supportsChangelog) {
+      return supportsChangelog.newChangelog(context);
+    }
+    throw new UnsupportedOperationException(name() + " does not support Change Data Capture (CDC)");
+  }
+
+  /**
    * Invalidate cached table metadata for an {@link Identifier identifier}.
    * <p>
    * If the table is already loaded or cached, drop cached data. If the table does not exist or is

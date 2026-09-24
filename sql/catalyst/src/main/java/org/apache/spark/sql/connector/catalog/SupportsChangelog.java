@@ -26,6 +26,9 @@ import org.apache.spark.annotation.Evolving;
  * instance for ordinary reads and changelog reads with matching table-state options. The changelog
  * range and post-processing parameters select a derived read of that table, rather than a separate
  * base table state.
+ * <p>
+ * Spark invokes this interface directly on its loaded table. The deprecated
+ * {@link TableCatalog#loadChangelog} default delegates here as a migration aid for direct callers.
  *
  * @since 5.0.0
  */

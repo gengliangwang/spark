@@ -53,7 +53,7 @@ class ChangelogResolutionSuite extends SharedSparkSession {
   override def beforeAll(): Unit = {
     super.beforeAll()
     spark.conf.set(s"spark.sql.catalog.$cdcCatalogName",
-      classOf[InMemoryChangelogCatalog].getName)
+      classOf[LegacyChangelogOverrideCatalog].getName)
     spark.conf.set(s"spark.sql.catalog.$cdcCatalogName.tableStateOptionKeys", "branch")
     spark.conf.set(s"spark.sql.catalog.$noCdcCatalogName",
       classOf[InMemoryTableCatalog].getName)
@@ -853,6 +853,16 @@ class ChangelogResolutionSuite extends SharedSparkSession {
     intercept[UnsupportedOperationException] { wrapChangelog(cl, stubInfo()) }
   }
 
+}
+
+/** Verifies that Spark derives changelogs from loaded tables without calling the legacy API. */
+class LegacyChangelogOverrideCatalog extends InMemoryChangelogCatalog {
+  override def loadChangelog(
+      ident: Identifier,
+      context: ChangelogContext,
+      options: CaseInsensitiveStringMap): Changelog = {
+    throw new IllegalStateException("Spark must derive changelogs from the shared base table")
+  }
 }
 
 /**
