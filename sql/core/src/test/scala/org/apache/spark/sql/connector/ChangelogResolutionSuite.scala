@@ -21,6 +21,7 @@ import java.util.Collections
 
 import org.apache.spark.sql.{AnalysisException, QueryTest, Row}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.V2TableReference
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.catalyst.streaming.StreamingRelationV2
 import org.apache.spark.sql.classic.DataFrame
@@ -29,7 +30,7 @@ import org.apache.spark.sql.connector.catalog.CatalogV2Implicits._
 import org.apache.spark.sql.connector.catalog.ChangelogRange
 import org.apache.spark.sql.connector.expressions.{FieldReference, NamedReference, Transform}
 import org.apache.spark.sql.connector.read.{InputPartition, PartitionReaderFactory, ScanBuilder}
-import org.apache.spark.sql.execution.datasources.v2.{ChangelogTable, DataSourceV2Relation, DataSourceV2ScanRelation}
+import org.apache.spark.sql.execution.datasources.v2.{ChangelogUtil, DataSourceV2Relation, DataSourceV2ScanRelation, StreamingDataSourceV2Relation}
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{ArrayType, IntegerType, LongType, MapType, StringType, StructField, StructType, TimestampType}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -37,7 +38,7 @@ import org.apache.spark.unsafe.types.UTF8String
 
 /**
  * Tests for the CDC (Change Data Capture) analyzer resolution path:
- * RelationChanges -> resolveChangelog -> DataSourceV2Relation(ChangelogTable).
+ * RelationChanges -> resolveChangelog -> DataSourceV2Relation(Changelog).
  */
 class ChangelogResolutionSuite extends SharedSparkSession {
 
@@ -95,7 +96,7 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       Collections.emptyMap[String, String]())
   }
 
-  test("CHANGES clause resolves to DataSourceV2Relation with ChangelogTable") {
+  test("CHANGES clause resolves to DataSourceV2Relation with the connector Changelog") {
     val df = sql(
       s"SELECT * FROM $cdcCatalogName.test_table CHANGES FROM VERSION 1 TO VERSION 5")
     val analyzed = df.queryExecution.analyzed
@@ -103,9 +104,10 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       case r: DataSourceV2Relation => r
     }
     assert(dsv2Relations.length == 1)
-    assert(dsv2Relations.head.table.isInstanceOf[ChangelogTable])
-    val changelogTable = dsv2Relations.head.table.asInstanceOf[ChangelogTable]
+    assert(dsv2Relations.head.table.isInstanceOf[InMemoryChangelog])
+    val changelogTable = dsv2Relations.head.table.asInstanceOf[Changelog]
     assert(changelogTable.name().endsWith("test_table_changelog"))
+    assert(changelogTable.context() == cdcCatalog.lastChangelogContext.get)
   }
 
   test("CHANGES clause - table without SupportsChangelog throws") {
@@ -135,7 +137,7 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       case r: DataSourceV2Relation => r
     }
     assert(dsv2Relations.length == 1)
-    assert(dsv2Relations.head.table.isInstanceOf[ChangelogTable])
+    assert(dsv2Relations.head.table.isInstanceOf[InMemoryChangelog])
   }
 
   test("DataFrame API - changes() on catalog without CDC throws") {
@@ -170,7 +172,7 @@ class ChangelogResolutionSuite extends SharedSparkSession {
     assert(e.getMessage.contains("changes"))
   }
 
-  test("DataStreamReader - changes() resolves to StreamingRelationV2 with ChangelogTable") {
+  test("DataStreamReader - changes() resolves to StreamingRelationV2 with Changelog") {
     val df = spark.readStream
       .option("startingVersion", "1")
       .changes(s"$cdcCatalogName.test_table")
@@ -179,7 +181,7 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       case r: StreamingRelationV2 => r
     }
     assert(streamRelations.length == 1)
-    assert(streamRelations.head.table.isInstanceOf[ChangelogTable])
+    assert(streamRelations.head.table.isInstanceOf[InMemoryChangelog])
     val colNames = df.schema.fieldNames
     assert(colNames.contains("_change_type"))
     assert(colNames.contains("_commit_version"))
@@ -322,11 +324,11 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       case r: DataSourceV2Relation => r
     }
     val changelog = analyzedRelations.collectFirst {
-      case r if r.table.isInstanceOf[ChangelogTable] =>
-        r.table.asInstanceOf[ChangelogTable]
+      case r if r.table.isInstanceOf[InMemoryChangelog] =>
+        r.table.asInstanceOf[Changelog]
     }.get
-    val base = analyzedRelations.find(r => !r.table.isInstanceOf[ChangelogTable]).get.table
-    assert(changelog.baseTable eq base)
+    val base = analyzedRelations.find(r => !r.table.isInstanceOf[InMemoryChangelog]).get.table
+    assert(changelog.baseTable() eq base)
     assert(cat.loadTableCalls.size == 1)
     assert(cat.lastLoadTableOptions.get.size() == 1)
     assert(cat.lastLoadTableOptions.get.get("branch") == "main")
@@ -338,11 +340,11 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       case r: DataSourceV2ScanRelation => r.relation
     }
     val refreshedChangelog = refreshed.collectFirst {
-      case r if r.table.isInstanceOf[ChangelogTable] =>
-        r.table.asInstanceOf[ChangelogTable]
+      case r if r.table.isInstanceOf[InMemoryChangelog] =>
+        r.table.asInstanceOf[Changelog]
     }.get
-    val refreshedBase = refreshed.find(r => !r.table.isInstanceOf[ChangelogTable]).get.table
-    assert(refreshedChangelog.baseTable eq refreshedBase)
+    val refreshedBase = refreshed.find(r => !r.table.isInstanceOf[InMemoryChangelog]).get.table
+    assert(refreshedChangelog.baseTable() eq refreshedBase)
     assert(refreshed.map(_.options.get("split-size")).sorted == Seq("5", "9"))
     assert(cat.lastScanOptions.get.get("split-size") == "9")
   }
@@ -359,15 +361,23 @@ class ChangelogResolutionSuite extends SharedSparkSession {
         "WITH ('split-size' = '9') UNION ALL " +
         s"SELECT id FROM $tableName CHANGES FROM VERSION 1 TO VERSION 1 " +
         "WITH ('split-size' = '7')")
-    val changelogs = df.queryExecution.analyzed.collect {
-      case r: DataSourceV2Relation => r.table.asInstanceOf[ChangelogTable]
-    }
+    val relations = df.queryExecution.analyzed.collect { case r: DataSourceV2Relation => r }
+    val changelogs = relations.map(_.table.asInstanceOf[Changelog])
     assert(changelogs.size == 3)
-    assert(changelogs.forall(_.baseTable eq changelogs.head.baseTable))
-    assert(changelogs.head.changelog ne changelogs.last.changelog)
+    assert(changelogs.forall(_.baseTable() eq changelogs.head.baseTable()))
+    assert(changelogs.head ne changelogs.last)
     assert(changelogs.head == changelogs.last)
     assert(Set(changelogs.head).contains(changelogs.last))
     assert(changelogs.head != changelogs(1))
+    assert(changelogs.head != changelogs.head.baseTable())
+    assert(!relations.head.sameResult(relations.last))
+    val sameOptions = relations.last.copy(options = relations.head.options)
+    assert(relations.head.sameResult(sameOptions))
+    assert(relations.head.semanticHash() == sameOptions.semanticHash())
+    val sameOutput = sameOptions.copy(output = relations.head.output)
+    assert(relations.head == sameOutput)
+    assert(relations.head.hashCode() == sameOutput.hashCode())
+    assert(!relations.head.sameResult(relations(1).copy(options = relations.head.options)))
     assert(cat.loadTableCalls.size == 1)
     assert(cat.lastLoadTableOptions.get.isEmpty)
 
@@ -380,6 +390,45 @@ class ChangelogResolutionSuite extends SharedSparkSession {
     assert(scanOptions.sorted == Seq("5", "7", "9"))
   }
 
+  test("streaming changelog identity uses base state, context, and scan options") {
+    val analyzed = spark.readStream.option("startingVersion", "1")
+      .changes(s"$cdcCatalogName.test_table").queryExecution.analyzed
+    val original = analyzed.collectFirst { case r: StreamingRelationV2 => r }.get
+    val captured = original.table.asInstanceOf[Changelog]
+    val changelog = ChangelogUtil.create(captured.baseTable(), captured.context())
+    val independentCopy = original.copy(table = changelog)
+    assert(original == independentCopy)
+    assert(original.hashCode() == independentCopy.hashCode())
+    val independent = independentCopy.newInstance().asInstanceOf[StreamingRelationV2]
+
+    assert(original.table ne independent.table)
+    assert(original.sameResult(independent))
+    assert(original.semanticHash() == independent.semanticHash())
+    val changedOptions = new CaseInsensitiveStringMap(
+      Collections.singletonMap("split-size", "5"))
+    assert(!original.sameResult(independent.copy(extraOptions = changedOptions)))
+
+    val otherContext = new ChangelogContext(
+      new ChangelogRange.VersionRange("2", java.util.Optional.empty[String](), true, true),
+      captured.context().deduplicationMode(),
+      captured.context().computeUpdates())
+    val otherChangelog = ChangelogUtil.create(captured.baseTable(), otherContext)
+    assert(!original.sameResult(independent.copy(table = otherChangelog)))
+    assert(!original.sameResult(independent.copy(table = captured.baseTable())))
+
+    val executionRelation = StreamingDataSourceV2Relation(
+      original.table, original.output, original.catalog, original.identifier,
+      original.extraOptions, "metadata")
+    val independentExecution = executionRelation.copy(table = independentCopy.table)
+    assert(executionRelation == independentExecution)
+    assert(executionRelation.hashCode() == independentExecution.hashCode())
+    val newInstance = independentExecution.newInstance()
+    assert(newInstance.table eq independentCopy.table)
+    assert(executionRelation.sameResult(newInstance))
+    assert(executionRelation.semanticHash() == newInstance.semanticHash())
+    assert(!executionRelation.sameResult(independentExecution.copy(table = otherChangelog)))
+  }
+
   test("changelog reads with different state options load separate base tables") {
     val cat = cdcCatalog
     cat.resetLoadTableCalls()
@@ -390,10 +439,10 @@ class ChangelogResolutionSuite extends SharedSparkSession {
         s"SELECT id FROM $tableName CHANGES FROM VERSION 1 " +
         "WITH ('branch' = 'dev')")
     val changelogs = df.queryExecution.analyzed.collect {
-      case r: DataSourceV2Relation => r.table.asInstanceOf[ChangelogTable]
+      case r: DataSourceV2Relation => r.table.asInstanceOf[Changelog]
     }
     assert(changelogs.size == 2)
-    assert(changelogs.head.baseTable ne changelogs.last.baseTable)
+    assert(changelogs.head.baseTable() ne changelogs.last.baseTable())
     assert(changelogs.head != changelogs.last)
     assert(cat.loadTableCalls.map(_._2.get("branch")).sorted == Seq("dev", "main"))
 
@@ -442,6 +491,11 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       ChangelogContext.DeduplicationMode.DROP_CARRYOVERS,
       false)
     val changelog = base.newChangelog(context)
+    assert(changelog.baseTable() eq base)
+    assert(changelog.context() eq context)
+    assert(changelog.id() != null)
+    assert(changelog.id() == base.id())
+    assert(changelog.version() == base.version())
     val scan = changelog.newScanBuilder(options).build()
 
     def readIds(
@@ -517,7 +571,7 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       checkAnswer(spark.table(tableName).select("id"), Seq(Row(10L)))
       val refreshedChanges = sql(s"SELECT * FROM $tableName CHANGES FROM VERSION 1")
       assert(refreshedChanges.queryExecution.analyzed.collect {
-        case r: DataSourceV2Relation => r.table.isInstanceOf[ChangelogTable]
+        case r: DataSourceV2Relation => r.table.isInstanceOf[InMemoryChangelog]
       } == Seq(true))
       checkAnswer(refreshedChanges.select("id"), Seq(Row(1L), Row(2L)))
     } finally {
@@ -551,7 +605,7 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       val recached = cacheManager.lookupCachedData(refreshed)
       assert(recached.isDefined)
       assert(recached.get.plan.collect {
-        case r: DataSourceV2Relation => r.table.isInstanceOf[ChangelogTable]
+        case r: DataSourceV2Relation => r.table.isInstanceOf[InMemoryChangelog]
       } == Seq(true))
       assertCached(refreshed)
       checkAnswer(refreshed.select("id"), Seq(Row(1L), Row(2L)))
@@ -560,6 +614,96 @@ class ChangelogResolutionSuite extends SharedSparkSession {
     } finally {
       spark.catalog.clearCache()
     }
+  }
+
+  test("DataFrame temp views preserve changelog context when loading fresh table state") {
+    withTempView("cdc_view") {
+      val cat = cdcCatalog
+      cat.addChangeRows(ident, Seq(changeRow(1L, 1L)))
+      val changes = spark.read.option("startingVersion", "1")
+        .changes(s"$cdcCatalogName.test_table")
+      val original = changes.queryExecution.analyzed.collectFirst {
+        case r: DataSourceV2Relation => r.table.asInstanceOf[Changelog]
+      }.get
+      changes.createOrReplaceTempView("cdc_view")
+
+      cat.addChangeRows(ident, Seq(changeRow(2L, 2L)))
+      val fromView = spark.table("cdc_view")
+      val relation = fromView.queryExecution.analyzed.collectFirst {
+        case r: DataSourceV2Relation => r
+      }.get
+      assert(relation.table.isInstanceOf[InMemoryChangelog])
+      assert(relation.changelogResolved)
+      val changelog = relation.table.asInstanceOf[Changelog]
+      assert(changelog.context() == original.context())
+      assert(changelog.baseTable() ne original.baseTable())
+      checkAnswer(fromView.select("id"), Seq(Row(1L), Row(2L)))
+    }
+  }
+
+  test("different changelog temp views and ordinary reads share only base table state") {
+    withTempView("cdc_first", "cdc_second") {
+      val tableName = s"$cdcCatalogName.test_table"
+      sql(s"INSERT INTO $tableName VALUES (10, 'current')")
+      val cat = cdcCatalog
+      cat.addChangeRows(ident, Seq(changeRow(1L, 1L), changeRow(2L, 2L)))
+      // SQL ranges leave all three option maps empty, so only the context distinguishes reads.
+      sql(s"SELECT * FROM $tableName CHANGES FROM VERSION 1 TO VERSION 1")
+        .createOrReplaceTempView("cdc_first")
+      sql(s"SELECT * FROM $tableName CHANGES FROM VERSION 2 TO VERSION 2")
+        .createOrReplaceTempView("cdc_second")
+      cat.resetLoadTableCalls()
+
+      val df = sql("SELECT id FROM cdc_first UNION ALL SELECT id FROM cdc_second " +
+        s"UNION ALL SELECT id FROM $tableName")
+      val relations = df.queryExecution.analyzed.collect {
+        case r: DataSourceV2Relation => r
+      }
+      assert(relations.size == 3)
+      assert(relations.forall(_.options.isEmpty))
+      val baseTables = relations.map(_.table).map {
+        case changelog: Changelog => changelog.baseTable()
+        case table => table
+      }
+      assert(baseTables.forall(_ eq baseTables.head))
+      val changelogRelations = relations.filter(_.table.isInstanceOf[Changelog])
+      assert(changelogRelations.size == 2)
+      assert(changelogRelations.forall(_.table.isInstanceOf[InMemoryChangelog]))
+      assert(changelogRelations.forall(_.changelogResolved))
+      val changelogs = changelogRelations.map(_.table.asInstanceOf[Changelog])
+      assert(changelogs.head.context() != changelogs.last.context())
+      assert(relations.count(r => !r.table.isInstanceOf[Changelog]) == 1)
+      assert(cat.loadTableCalls.size == 1)
+
+      cat.resetLoadTableCalls()
+      QueryTest.checkAnswer(df, Seq(Row(1L), Row(2L), Row(10L)), checkToRDD = false)
+      assert(cat.loadTableCalls.size == 1)
+    }
+  }
+
+  test("transaction table references retain changelog context and base table identity") {
+    val changes = spark.read.option("startingVersion", "1")
+      .changes(s"$cdcCatalogName.test_table")
+    val original = changes.queryExecution.analyzed.collectFirst {
+      case r: DataSourceV2Relation => r
+    }.get
+    val changelog = original.table.asInstanceOf[Changelog]
+    val reference = V2TableReference.createForTransaction(original)
+    assert(changelog.baseTable().id() != null)
+    assert(changelog.id() == changelog.baseTable().id())
+    assert(reference.info.tableId.contains(changelog.baseTable().id()))
+    assert(reference.changelog.contains(changelog))
+    assert(reference.changelogResolved == original.changelogResolved)
+
+    val rederived = reference.toRelation(changelog.baseTable())
+    assert(rederived.table.isInstanceOf[InMemoryChangelog])
+    assert(rederived.table ne original.table)
+    val rederivedChangelog = rederived.table.asInstanceOf[Changelog]
+    assert(rederivedChangelog.baseTable() eq changelog.baseTable())
+    assert(rederivedChangelog.context() == changelog.context())
+    assert(rederived.changelogResolved == original.changelogResolved)
+    assert(rederived.sameResult(original))
+    assert(rederived.semanticHash() == original.semanticHash())
   }
 
   // ===========================================================================
@@ -660,13 +804,9 @@ class ChangelogResolutionSuite extends SharedSparkSession {
   // Generic changelog schema validation
   // ===========================================================================
 
-  private def stubInfo(): ChangelogContext = new ChangelogContext(
-    new ChangelogRange.VersionRange("1", java.util.Optional.of("2"), true, true),
-    ChangelogContext.DeduplicationMode.DROP_CARRYOVERS,
-    false)
-
-  private def wrapChangelog(changelog: Changelog, context: ChangelogContext): ChangelogTable = {
-    ChangelogTable(changelog, changelog, context)
+  private def validateChangelog(changelog: Changelog): Changelog = {
+    ChangelogUtil.validateSchema(changelog)
+    changelog
   }
 
   private def cl(name: String, cols: (String, org.apache.spark.sql.types.DataType)*)
@@ -689,70 +829,151 @@ class ChangelogResolutionSuite extends SharedSparkSession {
   private val validVersion = "_commit_version" -> LongType
   private val validTimestamp = "_commit_timestamp" -> TimestampType
 
-  test("ChangelogTable preserves the changelog read capabilities") {
-    val table = wrapChangelog(
-      cl("batch_cl", validChangeType, validVersion, validTimestamp), stubInfo())
-    assert(table.capabilities == Collections.singleton(TableCapability.BATCH_READ))
+  test("changelog relations preserve the connector read capabilities") {
+    val changelog = validateChangelog(
+      cl("batch_cl", validChangeType, validVersion, validTimestamp))
+    val relation = DataSourceV2Relation.create(changelog, None, None)
+    assert(relation.table eq changelog)
+    assert(relation.table.capabilities() == Collections.singleton(TableCapability.BATCH_READ))
   }
 
-  test("ChangelogTable - missing _change_type column throws") {
+  test("relation copies preserve changelog context and connector metadata columns") {
+    val changelog = new TestChangelog(
+      "metadata_cl",
+      Array(
+        Column.create("id", LongType),
+        Column.create("_change_type", StringType),
+        Column.create("_commit_version", LongType),
+        Column.create("_commit_timestamp", TimestampType))) with SupportsMetadataColumns {
+      override def metadataColumns(): Array[MetadataColumn] = Array(new MetadataColumn {
+        override def name(): String = "_source"
+        override def dataType(): StringType = StringType
+      })
+    }
+    val options = CaseInsensitiveStringMap.empty()
+    val batch = DataSourceV2Relation.create(changelog, Some(cdcCatalog), Some(ident), options)
+      .copy(changelogResolved = true)
+    val batchWithMetadata = batch.withMetadataColumns()
+    val batchInstance = batchWithMetadata.copy().newInstance()
+    Seq(batch, batchWithMetadata, batchInstance).foreach { relation =>
+      assert(relation.table eq changelog)
+      assert(relation.changelogResolved)
+    }
+    assert(batchWithMetadata.output.last.name == "_source")
+    assert(batchInstance.output.map(_.exprId).toSet
+      .intersect(batchWithMetadata.output.map(_.exprId).toSet).isEmpty)
+    assert(batchInstance.sameResult(batchWithMetadata))
+
+    val stream = StreamingRelationV2(
+      None, changelog.name(), changelog, options, batch.output,
+      Some(cdcCatalog), Some(ident), None, changelogResolved = true)
+    val streamWithMetadata = stream.withMetadataColumns()
+    val streamInstance = streamWithMetadata.copy().newInstance()
+      .asInstanceOf[StreamingRelationV2]
+    Seq(stream, streamWithMetadata, streamInstance).foreach { relation =>
+      assert(relation.table eq changelog)
+      assert(relation.changelogResolved)
+    }
+    assert(streamWithMetadata.output.last.name == "_source")
+    assert(streamInstance.output.map(_.exprId).toSet
+      .intersect(streamWithMetadata.output.map(_.exprId).toSet).isEmpty)
+    assert(streamInstance.sameResult(streamWithMetadata))
+  }
+
+  gridTest("changelog refresh rejects changed row identity metadata")(
+      Seq("rowId", "rowVersion")) { changedField =>
+    def changelog(rowId: String, rowVersion: String): Changelog = new TestChangelog(
+      "refresh_cl",
+      Array(
+        Column.create("id", LongType),
+        Column.create("other_id", LongType),
+        Column.create("row_version", LongType),
+        Column.create("other_version", LongType),
+        Column.create("_change_type", StringType),
+        Column.create("_commit_version", LongType),
+        Column.create("_commit_timestamp", TimestampType)),
+      carryoverRows = true,
+      rowIdRefs = Array(FieldReference.column(rowId)),
+      rowVersionRef = Some(FieldReference.column(rowVersion)))
+
+    val captured = changelog("id", "row_version")
+    val current = if (changedField == "rowId") {
+      changelog("other_id", "row_version")
+    } else {
+      changelog("id", "other_version")
+    }
+    checkError(
+      intercept[AnalysisException] { ChangelogUtil.validateRefresh(captured, current) },
+      condition = "INCOMPATIBLE_TABLE_CHANGE_AFTER_ANALYSIS.CHANGELOG_METADATA_MISMATCH",
+      parameters = Map("tableName" -> "`refresh_cl`", "errors" -> s"- $changedField changed"))
+  }
+
+  test("changelog refresh does not require unused row identity methods") {
+    def changelog(): Changelog = new TestChangelog(
+      "plain_cl",
+      Array(
+        Column.create("_change_type", StringType),
+        Column.create("_commit_version", LongType),
+        Column.create("_commit_timestamp", TimestampType)),
+      rowIdSupported = false)
+    ChangelogUtil.validateRefresh(changelog(), changelog())
+  }
+
+  test("Changelog schema - missing _change_type column throws") {
     checkError(
       intercept[AnalysisException] {
-        wrapChangelog(cl("bad_cl", validVersion, validTimestamp), stubInfo())
+        validateChangelog(cl("bad_cl", validVersion, validTimestamp))
       },
       condition = "INVALID_CHANGELOG_SCHEMA.MISSING_COLUMN",
       parameters = missing("_change_type"))
   }
 
-  test("ChangelogTable - missing _commit_version column throws") {
+  test("Changelog schema - missing _commit_version column throws") {
     checkError(
       intercept[AnalysisException] {
-        wrapChangelog(cl("bad_cl", validChangeType, validTimestamp), stubInfo())
+        validateChangelog(cl("bad_cl", validChangeType, validTimestamp))
       },
       condition = "INVALID_CHANGELOG_SCHEMA.MISSING_COLUMN",
       parameters = missing("_commit_version"))
   }
 
-  test("ChangelogTable - missing _commit_timestamp column throws") {
+  test("Changelog schema - missing _commit_timestamp column throws") {
     checkError(
       intercept[AnalysisException] {
-        wrapChangelog(cl("bad_cl", validChangeType, validVersion), stubInfo())
+        validateChangelog(cl("bad_cl", validChangeType, validVersion))
       },
       condition = "INVALID_CHANGELOG_SCHEMA.MISSING_COLUMN",
       parameters = missing("_commit_timestamp"))
   }
 
-  test("ChangelogTable - wrong _change_type data type throws") {
+  test("Changelog schema - wrong _change_type data type throws") {
     checkError(
       intercept[AnalysisException] {
-        wrapChangelog(
-          cl("bad_cl", "_change_type" -> IntegerType, validVersion, validTimestamp),
-          stubInfo())
+        validateChangelog(
+          cl("bad_cl", "_change_type" -> IntegerType, validVersion, validTimestamp))
       },
       condition = "INVALID_CHANGELOG_SCHEMA.INVALID_COLUMN_TYPE",
       parameters = wrongType("_change_type", "STRING", "INT"))
   }
 
-  test("ChangelogTable - wrong _commit_timestamp data type throws") {
+  test("Changelog schema - wrong _commit_timestamp data type throws") {
     checkError(
       intercept[AnalysisException] {
-        wrapChangelog(
-          cl("bad_cl", validChangeType, validVersion, "_commit_timestamp" -> LongType),
-          stubInfo())
+        validateChangelog(
+          cl("bad_cl", validChangeType, validVersion, "_commit_timestamp" -> LongType))
       },
       condition = "INVALID_CHANGELOG_SCHEMA.INVALID_COLUMN_TYPE",
       parameters = wrongType("_commit_timestamp", "TIMESTAMP", "BIGINT"))
   }
 
-  test("ChangelogTable - _commit_version accepts LongType and StringType") {
+  test("Changelog schema - _commit_version accepts LongType and StringType") {
     Seq(LongType, StringType).foreach { versionType =>
-      wrapChangelog(
-        cl("any_cl", validChangeType, "_commit_version" -> versionType, validTimestamp),
-        stubInfo())
+      validateChangelog(
+        cl("any_cl", validChangeType, "_commit_version" -> versionType, validTimestamp))
     }
   }
 
-  test("ChangelogTable - _commit_version rejects all other data types") {
+  test("Changelog schema - _commit_version rejects all other data types") {
     val structVersion = StructType(Seq(StructField("v", LongType)))
     Seq[(org.apache.spark.sql.types.DataType, String)](
       // Other atomic types previously allowed under the AtomicType contract.
@@ -764,23 +985,21 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       structVersion -> structVersion.sql).foreach { case (versionType, sql) =>
       checkError(
         intercept[AnalysisException] {
-          wrapChangelog(
-            cl("bad_cl", validChangeType, "_commit_version" -> versionType, validTimestamp),
-            stubInfo())
+          validateChangelog(
+            cl("bad_cl", validChangeType, "_commit_version" -> versionType, validTimestamp))
         },
         condition = "INVALID_CHANGELOG_SCHEMA.INVALID_COLUMN_TYPE",
         parameters = wrongType("_commit_version", "BIGINT or STRING", sql))
     }
   }
 
-  test("ChangelogTable - valid schema with data columns passes") {
-    wrapChangelog(
+  test("Changelog schema - valid schema with data columns passes") {
+    validateChangelog(
       cl("good_cl", "id" -> LongType, "name" -> StringType,
-        validChangeType, validVersion, validTimestamp),
-      stubInfo())
+        validChangeType, validVersion, validTimestamp))
   }
 
-  test("ChangelogTable - nested rowId and rowVersion references pass (Delta-style _metadata)") {
+  test("Changelog schema - nested rowId and rowVersion references pass (Delta-style _metadata)") {
     val metadataRowId = FieldReference(Seq("_metadata", "row_id"))
     val metadataRowVersion = FieldReference(Seq("_metadata", "row_commit_version"))
     val cl = new TestChangelog(
@@ -793,10 +1012,10 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       carryoverRows = true,
       rowIdRefs = Array(metadataRowId),
       rowVersionRef = Some(metadataRowVersion))
-    wrapChangelog(cl, stubInfo())
+    validateChangelog(cl)
   }
 
-  test("ChangelogTable - representsUpdateAsDeleteAndInsert=true requires non-empty rowId") {
+  test("Changelog schema - representsUpdateAsDeleteAndInsert=true requires non-empty rowId") {
     val cl = new TestChangelog(
       "bad_cl",
       Array(
@@ -807,12 +1026,12 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       rowIdRefs = Array.empty,
       rowVersionRef = Some(FieldReference.column("_commit_version")))
     checkError(
-      intercept[AnalysisException] { wrapChangelog(cl, stubInfo()) },
+      intercept[AnalysisException] { validateChangelog(cl) },
       condition = "INVALID_CHANGELOG_SCHEMA.MISSING_ROW_ID",
       parameters = Map("changelogName" -> "bad_cl"))
   }
 
-  test("ChangelogTable - containsIntermediateChanges=true requires non-empty rowId") {
+  test("Changelog schema - containsIntermediateChanges=true requires non-empty rowId") {
     val cl = new TestChangelog(
       "bad_cl",
       Array(
@@ -822,12 +1041,12 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       intermediateChanges = true,
       rowIdRefs = Array.empty)
     checkError(
-      intercept[AnalysisException] { wrapChangelog(cl, stubInfo()) },
+      intercept[AnalysisException] { validateChangelog(cl) },
       condition = "INVALID_CHANGELOG_SCHEMA.MISSING_ROW_ID",
       parameters = Map("changelogName" -> "bad_cl"))
   }
 
-  test("ChangelogTable - UnsupportedOperationException surfaces when rowId() not implemented") {
+  test("Changelog schema - UnsupportedOperationException surfaces when rowId() not implemented") {
     val cl = new TestChangelog(
       "bad_cl",
       Array(
@@ -837,10 +1056,10 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       carryoverRows = true,
       rowIdSupported = false,
       rowVersionRef = Some(FieldReference.column("_commit_version")))
-    intercept[UnsupportedOperationException] { wrapChangelog(cl, stubInfo()) }
+    intercept[UnsupportedOperationException] { validateChangelog(cl) }
   }
 
-  test("ChangelogTable - UnsupportedOperationException surfaces when rowVersion() missing") {
+  test("Changelog schema - UnsupportedOperationException surfaces when rowVersion() missing") {
     val cl = new TestChangelog(
       "bad_cl",
       Array(
@@ -850,7 +1069,7 @@ class ChangelogResolutionSuite extends SharedSparkSession {
       carryoverRows = true,
       rowIdRefs = Array(FieldReference.column("id")),
       rowVersionRef = None)
-    intercept[UnsupportedOperationException] { wrapChangelog(cl, stubInfo()) }
+    intercept[UnsupportedOperationException] { validateChangelog(cl) }
   }
 
 }
@@ -867,7 +1086,7 @@ class LegacyChangelogOverrideCatalog extends InMemoryChangelogCatalog {
 
 /**
  * Test-only [[Changelog]] implementation that returns a hand-crafted schema. Used to
- * exercise [[ChangelogTable]]'s schema validation without going through a real catalog.
+ * exercise [[ChangelogUtil]]'s schema validation without going through a real catalog.
  *
  * Defaults match a minimal connector with no post-processing capabilities. Tests opt
  * into capability flags or `rowVersion()` overrides via constructor params.
@@ -881,7 +1100,19 @@ private class TestChangelog(
     rowIdRefs: Array[NamedReference] = Array.empty,
     rowIdSupported: Boolean = true,
     rowVersionRef: Option[NamedReference] = None) extends Changelog {
+  private val sourceTable = new Table {
+    override def name(): String = nameArg
+    override def columns(): Array[Column] = cols
+    override def capabilities(): java.util.Set[TableCapability] = java.util.Set.of()
+  }
+  private val changelogContext = new ChangelogContext(
+    new ChangelogRange.VersionRange("1", java.util.Optional.of("2"), true, true),
+    ChangelogContext.DeduplicationMode.DROP_CARRYOVERS,
+    false)
+
   override def name(): String = nameArg
+  override def baseTable(): Table = sourceTable
+  override def context(): ChangelogContext = changelogContext
   override def columns(): Array[Column] = cols
   override def capabilities(): java.util.Set[TableCapability] =
     Collections.singleton(TableCapability.BATCH_READ)

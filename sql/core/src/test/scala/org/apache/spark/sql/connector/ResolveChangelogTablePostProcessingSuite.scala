@@ -22,14 +22,15 @@ import java.util.Collections
 import org.apache.spark.SparkRuntimeException
 import org.apache.spark.sql.{AnalysisException, Row}
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.analysis.ResolveChangelogTable
 import org.apache.spark.sql.catalyst.streaming.StreamingRelationV2
 import org.apache.spark.sql.connector.catalog.{
-  ChangelogProperties, Column, Identifier, InMemoryChangelogCatalog}
+  Changelog, ChangelogProperties, Column, Identifier, InMemoryChangelogCatalog}
 import org.apache.spark.sql.connector.catalog.Changelog.{
   CHANGE_TYPE_DELETE, CHANGE_TYPE_INSERT, CHANGE_TYPE_UPDATE_POSTIMAGE,
   CHANGE_TYPE_UPDATE_PREIMAGE}
 import org.apache.spark.sql.connector.expressions.Transform
-import org.apache.spark.sql.execution.datasources.v2.ChangelogTable
+import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
 import org.apache.spark.sql.test.SharedSparkSession
 import org.apache.spark.sql.types.{
   BinaryType, BooleanType, DoubleType, LongType, StringType, StructField, StructType}
@@ -356,11 +357,34 @@ class ResolveChangelogTablePostProcessingSuite extends SharedSparkSession {
     // a regression that deletes the streaming arm of `ResolveChangelogTable.apply` would
     // also pass the absence-of-helpers check above.
     val tableResolved = analyzed.collectFirst {
-      case rel: StreamingRelationV2 if rel.table.isInstanceOf[ChangelogTable] =>
-        rel.table.asInstanceOf[ChangelogTable].resolved
+      case rel: StreamingRelationV2 if rel.table.isInstanceOf[Changelog] =>
+        rel.changelogResolved
     }
     assert(tableResolved.contains(true),
-      s"Expected ChangelogTable to be marked resolved by the rule. Plan:\n$plan")
+      s"Expected changelog relation to be marked resolved by the rule. Plan:\n$plan")
+    assert(ResolveChangelogTable(analyzed).fastEquals(analyzed))
+  }
+
+  gridTest("changelog post-processing is idempotent")(Seq(false, true)) { streaming =>
+    catalog.setChangelogProperties(ident, ChangelogProperties(
+      containsCarryoverRows = true,
+      rowIdNames = Seq("id"),
+      rowVersionName = Some("row_commit_version")))
+    val df = if (streaming) {
+      spark.readStream.option("startingVersion", "1")
+        .changes(s"$catalogName.$testTableName")
+    } else {
+      spark.read.option("startingVersion", "1")
+        .changes(s"$catalogName.$testTableName")
+    }
+    val analyzed = df.queryExecution.analyzed
+    val processedRelations = analyzed.collect {
+      case relation: DataSourceV2Relation => relation.changelogResolved
+      case relation: StreamingRelationV2 => relation.changelogResolved
+    }
+    assert(processedRelations == Seq(true))
+    assert(analyzed.treeString.contains("__spark_cdc_"))
+    assert(ResolveChangelogTable(analyzed).fastEquals(analyzed))
   }
 
   // The streaming netChanges path is covered by

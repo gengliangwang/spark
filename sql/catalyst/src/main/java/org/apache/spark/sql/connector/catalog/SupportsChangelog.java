@@ -45,12 +45,17 @@ public interface SupportsChangelog extends Table {
    * Repeated calls for equivalent captured table states and equal contexts must return changelogs
    * with equivalent read semantics and metadata.
    * <p>
+   * The returned changelog must retain this exact table instance as its
+   * {@link Changelog#baseTable()} and the supplied parameters as its {@link Changelog#context()}.
+   * Its metadata must remain stable for its lifetime, and its {@code equals} and {@code hashCode}
+   * implementations must use the captured base table and context.
+   * <p>
    * Connector-specific options needed to construct the changelog must be declared by
    * {@link TableCatalog#tableStateOptionKeys()} and captured when the base table is loaded. Spark
    * passes each read's complete options to {@link Changelog#newScanBuilder} during scan planning.
-   * The returned changelog declares its own read capabilities and schema. Spark uses the base
-   * table's {@link Table#id()} and {@link Table#version()} for source identity and metadata
-   * refresh, regardless of the corresponding methods on the returned changelog.
+   * The returned changelog declares its own read capabilities and schema. Its
+   * {@link Changelog#id()} and {@link Changelog#version()} must reflect the captured base table,
+   * as their defaults do.
    *
    * @param context the changelog range and post-processing parameters
    * @return a changelog for the requested range

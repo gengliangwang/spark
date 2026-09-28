@@ -32,7 +32,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{Command, LogicalPlan, Resolv
 import org.apache.spark.sql.catalyst.trees.TreePattern.PLAN_EXPRESSION
 import org.apache.spark.sql.catalyst.util.sideBySide
 import org.apache.spark.sql.classic.{Dataset, SparkSession}
-import org.apache.spark.sql.connector.catalog.{CatalogPlugin, CatalogV2Util}
+import org.apache.spark.sql.connector.catalog.{CatalogPlugin, CatalogV2Util, Changelog}
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.{IdentifierHelper, MultipartIdentifierHelper}
 import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.connector.catalog.transactions.Transaction
@@ -44,7 +44,7 @@ import org.apache.spark.sql.execution.datasources.{
   HadoopFsRelation,
   LogicalRelation,
   LogicalRelationWithTable}
-import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, ChangelogTable, DataSourceV2Relation, ExtractV2CatalogAndIdentifier, ExtractV2Table, FileTable, V2TableRefreshUtil}
+import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV2Relation, ExtractV2CatalogAndIdentifier, ExtractV2Table, FileTable, V2TableRefreshUtil}
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources.BaseRelation
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -264,7 +264,7 @@ class CacheManager extends Logging with AdaptiveSparkPlanHelper {
         isSameName(name, catalogTable.identifier.nameParts, resolver) &&
           (includeTimeTravel || !isTimeTravelRelation(relation))
 
-      case DataSourceV2Relation(_, _, Some(catalog), Some(v2Ident), _, timeTravelSpec) =>
+      case DataSourceV2Relation(_, _, Some(catalog), Some(v2Ident), _, timeTravelSpec, _) =>
         val nameInCache = v2Ident.toQualifiedNameParts(catalog)
         isSameName(name, nameInCache, resolver) && (includeTimeTravel || timeTravelSpec.isEmpty)
 
@@ -431,7 +431,7 @@ class CacheManager extends Logging with AdaptiveSparkPlanHelper {
     try {
       EliminateSubqueryAliases(plan) match {
         case r @ ExtractV2CatalogAndIdentifier(catalog, ident)
-            if r.timeTravelSpec.isEmpty && !r.table.isInstanceOf[ChangelogTable] =>
+            if r.timeTravelSpec.isEmpty && !r.table.isInstanceOf[Changelog] =>
           val table = CatalogV2Util.getTable(catalog, ident, options = r.options)
           if (r.table.id == table.id) {
             Some(DataSourceV2Relation.create(table, Some(catalog), Some(ident), r.options))
@@ -464,9 +464,9 @@ class CacheManager extends Logging with AdaptiveSparkPlanHelper {
             tableId.forall(_ == r.table.id) &&
             CatalogV2Util.extractTableStateOptions(catalog, r.options) == stateOptions =>
         r.table match {
-          case changelog: ChangelogTable =>
+          case changelog: Changelog =>
             DataSourceV2Relation.create(
-              changelog.baseTable, r.catalog, r.identifier, r.options)
+              changelog.baseTable(), r.catalog, r.identifier, r.options)
           case _ => r
         }
     }

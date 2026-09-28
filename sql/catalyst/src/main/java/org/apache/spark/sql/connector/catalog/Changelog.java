@@ -27,6 +27,13 @@ import org.apache.spark.sql.connector.expressions.NamedReference;
  * post-processing (carry-over removal, update detection, net change computation) based on
  * the properties declared by the connector.
  * <p>
+ * A changelog captures a read of {@link #baseTable()} selected by {@link #context()}. All metadata
+ * exposed by this instance must remain stable for its lifetime, including its schema, capabilities,
+ * post-processing flags, row identity, and row version references. Refreshing the base table must
+ * not mutate an existing changelog. Implementations must define {@code equals} and {@code hashCode}
+ * using the captured base table and context so independently derived equivalent reads compare
+ * equal.
+ * <p>
  * The columns returned by {@link #columns()} must include the following metadata columns:
  * <ul>
  *   <li>{@code _change_type} (STRING) — the kind of change: {@code insert}, {@code delete},
@@ -116,6 +123,43 @@ public interface Changelog extends SupportsRead {
   String CHANGE_TYPE_UPDATE_PREIMAGE = "update_preimage";
   /** Constant for the {@code _change_type} value of an update's post-image row. */
   String CHANGE_TYPE_UPDATE_POSTIMAGE = "update_postimage";
+
+  /**
+   * Returns the exact captured table instance on which
+   * {@link SupportsChangelog#newChangelog(ChangelogContext)} was called.
+   * This method must not load or refresh the table.
+   *
+   * @since 5.0.0
+   */
+  Table baseTable();
+
+  /**
+   * Returns the range and post-processing parameters supplied to
+   * {@link SupportsChangelog#newChangelog(ChangelogContext)}.
+   *
+   * @since 5.0.0
+   */
+  ChangelogContext context();
+
+  /**
+   * Returns the identity of the captured base table.
+   *
+   * @since 5.0.0
+   */
+  @Override
+  default String id() {
+    return baseTable().id();
+  }
+
+  /**
+   * Returns the version of the captured base table.
+   *
+   * @since 5.0.0
+   */
+  @Override
+  default String version() {
+    return baseTable().version();
+  }
 
   /**
    * Returns the columns of this changelog, including data columns and the required

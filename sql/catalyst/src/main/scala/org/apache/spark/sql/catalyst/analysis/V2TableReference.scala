@@ -30,6 +30,7 @@ import org.apache.spark.sql.catalyst.plans.logical.Statistics
 import org.apache.spark.sql.catalyst.util.truncatedString
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.CatalogHelper
 import org.apache.spark.sql.connector.catalog.CatalogV2Implicits.IdentifierHelper
+import org.apache.spark.sql.connector.catalog.Changelog
 import org.apache.spark.sql.connector.catalog.Column
 import org.apache.spark.sql.connector.catalog.Identifier
 import org.apache.spark.sql.connector.catalog.MetadataColumn
@@ -37,7 +38,7 @@ import org.apache.spark.sql.connector.catalog.Table
 import org.apache.spark.sql.connector.catalog.TableCatalog
 import org.apache.spark.sql.connector.catalog.V2TableUtil
 import org.apache.spark.sql.errors.QueryCompilationErrors
-import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation
+import org.apache.spark.sql.execution.datasources.v2.{ChangelogUtil, DataSourceV2Relation}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 import org.apache.spark.sql.util.SchemaValidationMode.{ALLOW_NEW_TOP_LEVEL_FIELDS, PROHIBIT_CHANGES}
 import org.apache.spark.util.ArrayImplicits._
@@ -57,7 +58,9 @@ private[sql] case class V2TableReference private(
     options: CaseInsensitiveStringMap,
     info: TableInfo,
     output: Seq[AttributeReference],
-    context: Context)
+    context: Context,
+    changelog: Option[Changelog] = None,
+    changelogResolved: Boolean = false)
   extends LeafNode with MultiInstanceRelation with NamedRelation {
 
   override def name: String = V2TableUtil.toQualifiedName(catalog, identifier)
@@ -74,7 +77,16 @@ private[sql] case class V2TableReference private(
   }
 
   def toRelation(table: Table): DataSourceV2Relation = {
-    DataSourceV2Relation(table, output, Some(catalog), Some(identifier), options)
+    val readTable = changelog match {
+      case Some(captured) =>
+        val current = ChangelogUtil.create(table, captured.context())
+        ChangelogUtil.validateRefresh(captured, current)
+        current
+      case None => table
+    }
+    DataSourceV2Relation(
+      readTable, output, Some(catalog), Some(identifier), options,
+      changelogResolved = changelogResolved)
   }
 }
 
@@ -135,7 +147,12 @@ private[sql] object V2TableReference {
         columns = relation.table.columns.toImmutableArraySeq,
         metadataColumns = V2TableUtil.extractMetadataColumns(relation)),
       relation.output,
-      context)
+      context,
+      relation.table match {
+        case changelog: Changelog => Some(changelog)
+        case _ => None
+      },
+      relation.changelogResolved)
     ref.copyTagsFrom(relation)
     ref
   }

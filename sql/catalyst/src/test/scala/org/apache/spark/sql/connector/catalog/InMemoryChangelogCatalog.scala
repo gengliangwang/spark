@@ -113,6 +113,8 @@ class InMemoryChangelogCatalog extends InMemoryCatalog {
         val commitVersionIdx = snapshot.columns().length + 1
         val range = changelogContext.range()
         new InMemoryChangelog(
+          this,
+          changelogContext,
           snapshot.name + "_changelog",
           snapshot.columns(),
           filterByRange(capturedRows, commitVersionIdx, range),
@@ -226,6 +228,8 @@ case class ChangelogProperties(
  * in Spark's post-processing analyzer rule.
  */
 class InMemoryChangelog(
+    base: Table,
+    changelogContext: ChangelogContext,
     tableName: String,
     dataColumns: Array[Column],
     changeRows: Seq[InternalRow],
@@ -240,11 +244,23 @@ class InMemoryChangelog(
 
   override def name(): String = tableName
 
+  override def baseTable(): Table = base
+
+  override def context(): ChangelogContext = changelogContext
+
   override def columns(): Array[Column] = cdcColumns
 
   override def capabilities(): util.Set[TableCapability] = {
     util.EnumSet.of(BATCH_READ, MICRO_BATCH_READ)
   }
+
+  override def equals(other: Any): Boolean = other match {
+    case that: InMemoryChangelog =>
+      baseTable() == that.baseTable() && context() == that.context()
+    case _ => false
+  }
+
+  override def hashCode(): Int = (baseTable(), context()).hashCode()
 
   override def containsCarryoverRows(): Boolean = changelogProperties.containsCarryoverRows
 

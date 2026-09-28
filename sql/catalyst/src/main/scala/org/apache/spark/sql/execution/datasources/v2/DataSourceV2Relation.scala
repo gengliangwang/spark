@@ -109,6 +109,8 @@ abstract class DataSourceV2RelationBase(
 
 /**
  * A specialization of [[DataSourceV2RelationBase]] that supports batch scan.
+ *
+ * @param changelogResolved whether Spark has applied CDC post-processing to this read
  */
 case class DataSourceV2Relation(
     table: Table,
@@ -116,7 +118,8 @@ case class DataSourceV2Relation(
     catalog: Option[CatalogPlugin],
     identifier: Option[Identifier],
     options: CaseInsensitiveStringMap,
-    timeTravelSpec: Option[TimeTravelSpec] = None)
+    timeTravelSpec: Option[TimeTravelSpec] = None,
+    changelogResolved: Boolean = false)
   extends DataSourceV2RelationBase(table, output, catalog, identifier, options, timeTravelSpec)
   with ExposesMetadataColumns {
 
@@ -442,7 +445,7 @@ object ExtractV2Table {
 object ExtractV2CatalogAndIdentifier {
   def unapply(relation: DataSourceV2Relation): Option[(TableCatalog, Identifier)] = {
     relation match {
-      case DataSourceV2Relation(_, _, Some(catalog), Some(identifier), _, _) =>
+      case DataSourceV2Relation(_, _, Some(catalog), Some(identifier), _, _, _) =>
         Some((catalog.asTableCatalog, identifier))
       case _ =>
         None

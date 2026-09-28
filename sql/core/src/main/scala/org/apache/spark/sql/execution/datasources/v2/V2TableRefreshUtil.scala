@@ -23,7 +23,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.SQLConfHelper
 import org.apache.spark.sql.catalyst.plans.logical.{Command, LogicalPlan}
 import org.apache.spark.sql.classic.SparkSession
-import org.apache.spark.sql.connector.catalog.{ChangelogContext, Identifier, Table, TableCatalog, V2TableUtil}
+import org.apache.spark.sql.connector.catalog.{Changelog, ChangelogContext, Identifier, Table, TableCatalog, V2TableUtil}
 import org.apache.spark.sql.connector.catalog.CatalogV2Util
 import org.apache.spark.sql.errors.QueryCompilationErrors
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -88,14 +88,14 @@ private[sql] object V2TableRefreshUtil extends SQLConfHelper with Logging {
     // depend on their context, so derive them separately from the refreshed base table.
     val currentTables = mutable.HashMap.empty[CurrentTableKey, Table]
     val currentChangelogs =
-      mutable.HashMap.empty[(CurrentTableKey, ChangelogContext), ChangelogTable]
+      mutable.HashMap.empty[(CurrentTableKey, ChangelogContext), Changelog]
     plan transformWithSubqueries {
       case r @ ExtractV2CatalogAndIdentifier(catalog, ident)
           if (r.isVersioned || !versionedOnly) && r.timeTravelSpec.isEmpty =>
         val stateOptions = CatalogV2Util.extractTableStateOptions(catalog, r.options)
         val tableKey = (catalog, ident, stateOptions)
         val capturedBaseTable = r.table match {
-          case changelog: ChangelogTable => changelog.baseTable
+          case changelog: Changelog => changelog.baseTable()
           case table => table
         }
         val currentBaseTable = currentTables.getOrElseUpdate(tableKey, {
@@ -111,17 +111,18 @@ private[sql] object V2TableRefreshUtil extends SQLConfHelper with Logging {
         })
         validateTableIdentity(currentBaseTable, r)
         val currentTable = r.table match {
-          case captured: ChangelogTable =>
-            val key = (tableKey, captured.changelogContext)
+          case captured: Changelog =>
+            val key = (tableKey, captured.context())
             val current = currentChangelogs.getOrElseUpdate(key,
-              ChangelogTable.create(currentBaseTable, captured.changelogContext))
-            captured.validateRefresh(current)
-            current.copy(resolved = captured.resolved)
+              ChangelogUtil.create(currentBaseTable, captured.context()))
+            ChangelogUtil.validateRefresh(captured, current)
+            current
           case _ => currentBaseTable
         }
         validateDataColumns(currentTable, r, schemaValidationMode)
         validateMetadataColumns(currentTable, r, schemaValidationMode)
         val refreshed = r.copy(table = currentTable)
+        refreshed.copyTagsFrom(r)
         if (schemaValidationMode == ALLOW_NEW_FIELDS) {
           AnalyzedSchemaProjection.rebindToAnalyzedSchema(refreshed)
         } else {

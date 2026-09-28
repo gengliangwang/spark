@@ -30,6 +30,8 @@ import org.apache.spark.sql.util.CaseInsensitiveStringMap
 // swap a V1 relation back in.
 /**
  * Used to link a [[Table]] into a streaming [[LogicalPlan]].
+ *
+ * @param changelogResolved whether Spark has applied CDC post-processing to this read
  */
 case class StreamingRelationV2(
     source: Option[TableProvider],
@@ -40,7 +42,8 @@ case class StreamingRelationV2(
     catalog: Option[CatalogPlugin],
     identifier: Option[Identifier],
     v1Relation: Option[LogicalPlan],
-    sourceIdentifyingName: StreamingSourceIdentifyingName = Unassigned)
+    sourceIdentifyingName: StreamingSourceIdentifyingName = Unassigned,
+    changelogResolved: Boolean = false)
   extends LeafNode with MultiInstanceRelation with ExposesMetadataColumns
   with HasStreamingSourceIdentifyingName {
   override lazy val resolved = v1Relation.forall(_.resolved)
@@ -60,8 +63,7 @@ case class StreamingRelationV2(
   def withMetadataColumns(): StreamingRelationV2 = {
     val newMetadata = metadataOutput.filterNot(outputSet.contains)
     if (newMetadata.nonEmpty) {
-      StreamingRelationV2(source, sourceName, table, extraOptions,
-        output ++ newMetadata, catalog, identifier, v1Relation, sourceIdentifyingName)
+      copy(output = output ++ newMetadata)
     } else {
       this
     }

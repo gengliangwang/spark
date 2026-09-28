@@ -26,8 +26,8 @@ import org.apache.spark.sql.connector.catalog.ChangelogContext
  *
  * This is an unresolved node created by the parser when it encounters a `CHANGES` clause,
  * or by the DataFrame API when `DataFrameReader.changes()` / `DataStreamReader.changes()` is
- * called. During analysis, it is resolved by loading a `Changelog` from the catalog and wrapping
- * it in a `ChangelogTable`.
+ * called. During analysis, Spark loads the base table and derives a `Changelog` from it.
+ * The resulting relation reads the connector's `Changelog` directly.
  *
  * Note: `relation` is a constructor field, not a tree child (this node extends
  * [[UnresolvedLeafNode]]). Tree traversals like `transformUp` will not visit `relation`.
